@@ -17,14 +17,13 @@ abstract class Workload(conf: WorkloadConfig, spark: SparkSession) {
   def doWorkload(df: DataFrame, sparkSession: SparkSession): DataFrame
 
   def run(): DataFrame = {
-
-
-
     val rawDF = load(spark, conf.inputDir)
     val df = reconcileSchema(rawDF)
     val res = doWorkload(df, spark)
     res.coalesce(1)
-
+    addConfigColumnsToResults(res)
   }
+
+  def addConfigColumnsToResults(results: DataFrame): DataFrame
 
 }

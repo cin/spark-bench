@@ -10,6 +10,8 @@ import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.types._
 import com.ibm.sparktc.sparkbench.utils.KMeansDefaults
+import org.apache.spark.sql.functions.lit
+
 
 import scala.util.{Failure, Success, Try}
 
@@ -84,6 +86,30 @@ class KMeansWorkload(conf: WorkloadConfig, spark: SparkSession) extends Workload
     println(timeList.first())
 
     spark.createDataFrame(timeList, schema)
+  }
+
+//  name: String,
+//  runs: Int,
+//  parallel: Boolean,
+//  inputDir: String,
+//  workloadResultsOutputDir: Option[String],
+//  outputDir: String,
+//  workloadSpecific: Map[String, Any]
+
+  override def addConfigColumnsToResults(results: DataFrame): DataFrame = {
+    val k = getOrDefault(conf.workloadSpecific, "k", KMeansDefaults.NUM_OF_CLUSTERS)
+    val maxIterations = getOrDefault(conf.workloadSpecific, "maxIterations", KMeansDefaults.MAX_ITERATION)
+    val seed = getOrDefault(conf.workloadSpecific, "seed", KMeansDefaults.SEED)
+
+    results
+      .withColumn("name", lit(conf.name))
+      .withColumn("runs", lit(conf.runs))
+      .withColumn("parallel", lit(conf.parallel))
+      .withColumn("input_directory", lit(conf.inputDir))
+//      .withColumn("workload_results_directory", lit(conf.workloadResultsOutputDir.orNull))
+      .withColumn("k", lit(k))
+      .withColumn("max_iterations", lit(maxIterations))
+      .withColumn("seed", lit(seed))
   }
 
   def loadToCache(df: DataFrame, spark: SparkSession): (Long, RDD[Vector]) = {
