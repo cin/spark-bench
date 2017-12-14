@@ -31,12 +31,12 @@ object TpcDsBase {
     "web_page", "web_site")
 }
 
-abstract class TpcDsBase(input: Option[String]) {
+abstract class TpcDsBase(dataDir: String) {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
   protected val tables: Array[String] = TpcDsBase.tables
 
-  protected val tpcdsRootDir: String = input.get
+  protected val tpcdsRootDir: String = dataDir
   protected val tpcdsDdlDir = s"$tpcdsRootDir/src/ddl/individual"
   protected val tpcdsGenDataDir = s"$tpcdsRootDir/src/data"
   protected val tpcdsQueriesDir = s"$tpcdsRootDir/src/queries"

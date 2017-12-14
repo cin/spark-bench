@@ -33,8 +33,10 @@ object TpcDsDataGen extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
   val name = "tpcdsdatagen"
   def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
-    Some(getOrDefault[String](m, "input", "https://github.com/SparkTC/tpcds-journey.git")),
-    Some(getOrThrow(m, "output").asInstanceOf[String]),
+    None,
+    None,
+    getOrDefault[String](m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
+    getOrDefault[String](m, "datadir", "tpcds-data"),
     getOrDefault(m, "warehouse", "spark-warehouse")
   )
 }
@@ -42,8 +44,10 @@ object TpcDsDataGen extends WorkloadDefaults {
 case class TpcDsDataGen(
     input: Option[String],
     output: Option[String],
+    repo: String,
+    dataDir: String,
     warehouse: String
-  ) extends TpcDsBase(input)
+  ) extends TpcDsBase(dataDir)
     with Workload {
   import TpcDsDataGen._
 
@@ -83,7 +87,7 @@ case class TpcDsDataGen(
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
     "rm -rf tpcds-journey".!
     "git --version".!
-    s"git clone --progress $input $output".!
+    s"git clone --progress $repo $dataDir".!
     implicit val impSpark: SparkSession = spark
     createDatabase
     forEachTable(tables, createTable)

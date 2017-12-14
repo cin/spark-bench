@@ -50,6 +50,7 @@ object TpcDsWorkload extends WorkloadDefaults {
   override def apply(m: Map[String, Any]): Workload = TpcDsWorkload(
     input = Some(getOrThrow(m, "input").asInstanceOf[String]),
     output = Some(getOrThrow(m, "output").asInstanceOf[String]),
+    dataDir = getOrThrow(m, "datadir").asInstanceOf[String],
     queries = mkQueries(m)
   )
 }
@@ -59,8 +60,9 @@ case class TpcDsQueryStats(queryName: String, duration: Long, resultLengh: Int)
 case class TpcDsWorkload(
     input: Option[String],
     output: Option[String],
+    dataDir: String,
     queries: Option[Seq[Int]]
-  ) extends TpcDsBase(input)
+  ) extends TpcDsBase(dataDir)
     with Workload {
   import TpcDsWorkload._
 

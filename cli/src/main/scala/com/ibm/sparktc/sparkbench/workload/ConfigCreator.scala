@@ -19,11 +19,13 @@ package com.ibm.sparktc.sparkbench.workload
 
 import com.ibm.sparktc.sparkbench.datageneration.GraphDataGen
 import com.ibm.sparktc.sparkbench.datageneration.mlgenerator.{KMeansDataGen, LinearRegressionDataGen}
+import com.ibm.sparktc.sparkbench.datageneration.tpcds.TpcDsDataGen
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.getOrThrow
 import com.ibm.sparktc.sparkbench.utils.SparkBenchException
 import com.ibm.sparktc.sparkbench.workload.exercise._
 import com.ibm.sparktc.sparkbench.workload.ml.{KMeansWorkload, LogisticRegressionWorkload}
 import com.ibm.sparktc.sparkbench.workload.sql.SQLWorkload
+import com.ibm.sparktc.sparkbench.workload.tpcds.TpcDsWorkload
 
 object ConfigCreator {
 
@@ -37,7 +39,9 @@ object ConfigCreator {
     SparkPi,
     KMeansDataGen,
     LinearRegressionDataGen,
-    GraphDataGen
+    GraphDataGen,
+    TpcDsDataGen,
+    TpcDsWorkload
   ).map(wk => wk.name -> wk).toMap
 
   private def loadCustom(name: String): WorkloadDefaults = {
