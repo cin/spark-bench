@@ -96,7 +96,7 @@ case class TpcDsDataGen(
     implicit val impSpark: SparkSession = spark
     createDatabase
     forEachTable(tables, createTable)
-    spark.sql("show tables").collect.foreach(s => log.error(s.mkString))
+    spark.sql("show tables").collect.foreach(s => log.error(s.mkString(" | ")))
     spark.emptyDataFrame
   }
 }

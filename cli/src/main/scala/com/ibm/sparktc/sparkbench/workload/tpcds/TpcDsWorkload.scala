@@ -71,7 +71,7 @@ case class TpcDsWorkload(
     val queryName = s"hdfs:///$tpcdsQueriesDir/query$queryStr.sql"
     val (_, content) = spark.sparkContext.wholeTextFiles(queryName).collect()(0)
     val queries = content.split("\n").filterNot(_.startsWith("--")).mkString(" ").split(";")
-    if (queries.isE) throw new Exception(s"No queries to run for $queryName - ")
+    if (queries.isEmpty) throw new Exception(s"No queries to run for $queryName - ")
     log.error(s"Running TPC-DS Query $queryName")
     queries.map { query =>
       val (dur, result) = time(spark.sql(query).collect)
