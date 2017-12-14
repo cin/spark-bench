@@ -22,8 +22,9 @@
 
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
-import sys.process._
+import java.io.File
 
+import sys.process._
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
@@ -71,26 +72,31 @@ case class TpcDsDataGen(
    */
   protected def createTable(tableName: String)(implicit spark: SparkSession): Unit = {
     log.error(s"Creating table $tableName ..")
-    spark.sql(s"DROP TABLE IF EXISTS $tableName")
+//    spark.sql(s"DROP TABLE IF EXISTS $tableName")spark
     deleteFile1(tableName)
     deleteFile2(tableName)
-    val (_, content) = spark.sparkContext.wholeTextFiles(s"$tpcdsDdlDir/$tableName.sql").collect()(0)
+    val (_, content) = spark.sparkContext.wholeTextFiles(s"hdfs:///$tpcdsDdlDir/$tableName.sql").collect()(0)
 
     // Remove the replace for the .dat once it is fixed in the github repo
     val sqlStmts = content.stripLineEnd
       .replace('\n', ' ')
-      .replace("${TPCDS_GENDATA_DIR}", tpcdsGenDataDir)
+      .replace("${TPCDS_GENDATA_DIR}", s"hdfs:///$tpcdsGenDataDir")
       .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat").split(";")
     sqlStmts.map(spark.sql)
   }
 
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
-    "rm -rf tpcds-journey".!
+//    "rm -rf $dataDir".!
     "git --version".!
-    s"git clone --progress $repo $dataDir".!
+
+    if (!new File(dataDir).exists()) s"git clone --progress $repo $dataDir".!
+    val dirExists = s"hdfs dfs -test -d hdfs:///$dataDir".!
+    if (dirExists != 0) s"hdfs dfs -copyFromLocal $dataDir hdfs:///$dataDir".!
+
     implicit val impSpark: SparkSession = spark
     createDatabase
     forEachTable(tables, createTable)
+    spark.sql("show tables").collect.foreach(s => log.error(s.mkString))
     spark.emptyDataFrame
   }
 }
