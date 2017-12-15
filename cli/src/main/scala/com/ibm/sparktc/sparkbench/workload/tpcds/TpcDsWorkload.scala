@@ -53,7 +53,7 @@ object TpcDsWorkload extends WorkloadDefaults {
         case Failure(e) => log.error(s"Failed to parse $v", e); None
       }
     }
-    case _ => 0 until 100
+    case _ => 1 until 100
   }
 
   override def apply(m: Map[String, Any]): Workload = {
