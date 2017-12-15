@@ -93,6 +93,7 @@ object GeneralFunctions {
   }
 
   def getOrThrow(m: Map[String, Any], key: String): Any = getOrThrow(m.get(key))
+  def getOrThrowT[T](m: Map[String, Any], key: String): T = getOrThrow(m.get(key)).asInstanceOf[T]
 
   def optionallyGet[A](m: Map[String, Any], key: String): Option[A] = m.get(key) match {
     case None => None

@@ -30,15 +30,19 @@ import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
+// TODO: resolve pathing issues in a more robust manner.
+// inserting hdfs was temporary just to get going
+
 object TpcDsDataGen extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
   val name = "tpcdsdatagen"
   def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
-    None,
-    None,
-    getOrDefault[String](m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
-    getOrDefault[String](m, "datadir", "tpcds-data"),
-    getOrDefault(m, "warehouse", "spark-warehouse")
+    optionallyGet(m, "input"),
+    optionallyGet(m, "output"),
+    getOrDefault(m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
+    getOrDefault(m, "datadir", "tpcds-data"),
+    getOrDefault(m, "warehouse", "spark-warehouse"),
+    getOrDefault(m, "clean", false)
   )
 }
 
@@ -47,7 +51,8 @@ case class TpcDsDataGen(
     output: Option[String],
     repo: String,
     dataDir: String,
-    warehouse: String
+    warehouse: String,
+    clean: Boolean
   ) extends TpcDsBase(dataDir)
     with Workload {
   import TpcDsDataGen._
@@ -72,7 +77,7 @@ case class TpcDsDataGen(
    */
   protected def createTable(tableName: String)(implicit spark: SparkSession): Unit = {
     log.error(s"Creating table $tableName ..")
-//    spark.sql(s"DROP TABLE IF EXISTS $tableName")spark
+    spark.sql(s"DROP TABLE IF EXISTS $tableName")
     deleteFile1(tableName)
     deleteFile2(tableName)
     val (_, content) = spark.sparkContext.wholeTextFiles(s"hdfs:///$tpcdsDdlDir/$tableName.sql").collect()(0)
@@ -81,19 +86,31 @@ case class TpcDsDataGen(
     val sqlStmts = content.stripLineEnd
       .replace('\n', ' ')
       .replace("${TPCDS_GENDATA_DIR}", s"hdfs:///$tpcdsGenDataDir")
-      .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat").split(";")
+      .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat")
+      .split(";")
     sqlStmts.map(spark.sql)
   }
 
+  private def cleanup(): Unit = {
+    "rm -rf $dataDir".!
+    s"hdfs dfs -rm -r -f hdfs:///$dataDir/*".!
+  }
+
+  private def retrieveRepo(): Unit = {
+    val dirExists = if (clean) {
+      cleanup()
+      1
+    } else s"hdfs dfs -test -d hdfs:///$dataDir".!
+    if (dirExists != 0) {
+      if (!new File(dataDir).exists()) s"git clone --progress $repo $dataDir".!
+      s"hdfs dfs -copyFromLocal $dataDir hdfs:///".!
+    }
+  }
+
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
-//    "rm -rf $dataDir".!
-    "git --version".!
-
-    if (!new File(dataDir).exists()) s"git clone --progress $repo $dataDir".!
-    val dirExists = s"hdfs dfs -test -d hdfs:///$dataDir".!
-    if (dirExists != 0) s"hdfs dfs -copyFromLocal $dataDir hdfs:///$dataDir".!
-
     implicit val impSpark: SparkSession = spark
+    "git --version".!
+    retrieveRepo()
     createDatabase
     forEachTable(tables, createTable)
     spark.sql("show tables").collect.foreach(s => log.error(s.mkString(" | ")))
