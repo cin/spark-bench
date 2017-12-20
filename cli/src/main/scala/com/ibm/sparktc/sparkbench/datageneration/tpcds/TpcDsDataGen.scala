@@ -132,17 +132,21 @@ case class TpcDsDataGen(
 
   private def genData(kitDir: String)(implicit spark: SparkSession): Unit = {
     log.error(s"~~~~~~ conf tables: $tpcDsTables")
-    val t = "store_sales"
-    spark.sparkContext.parallelize(0 until tpcDsPartitions, tpcDsPartitions).foreach { c =>
-      s"""$kitDir/tools/dsdgen
-         |  -SCALE $tpcDsScale
+    val bvScale = spark.sparkContext.broadcast(tpcDsScale)
+    val bvPartitions = spark.sparkContext.broadcast(tpcDsPartitions)
+    val bvKitDir = spark.sparkContext.broadcast(kitDir)
+    val bvRootDir = spark.sparkContext.broadcast(tpcdsRootDir)
+    spark.sparkContext.parallelize(0 until tpcDsPartitions, tpcDsPartitions).map { c =>
+      val t = "store_sales"
+      s"""${bvKitDir.value}/tools/dsdgen
+         |  -SCALE ${bvScale.value}
          |  -TABLE $t
          |  -CHILD $c
-         |  -PARALLEL $tpcDsPartitions
-         |  -DISTRIBUTIONS $kitDir/tools/tpcds.idx
+         |  -PARALLEL ${bvPartitions.value}
+         |  -DISTRIBUTIONS ${bvKitDir.value}/tools/tpcds.idx
          |  -TERMINATE N
-         |  -FILTER Y | hdfs dfs -put - hdfs:///$tpcdsRootDir/$t/${t}_${c}_$tpcDsPartitions.dat &""".stripMargin.!
-    }
+         |  -FILTER Y | hdfs dfs -put - hdfs:///${bvRootDir.value}/$t/${t}_${c}_${bvPartitions.value}.dat &""".stripMargin.!
+    }.collect.foreach(println)
   }
 
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
