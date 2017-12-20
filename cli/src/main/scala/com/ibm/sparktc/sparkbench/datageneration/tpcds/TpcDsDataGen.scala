@@ -36,46 +36,41 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 object TpcDsDataGen extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
   val name = "tpcdsdatagen"
-  def apply(m: Map[String, Any]): Workload = {
-    val tpcDsKitDir = m.get("tpcds-kit-dir") match {
-      case Some(d: String) => Some(d)
-      case _ => None
-    }
 
-    val tables = Option.empty[String]
-
-    log.error(s"tpcds-kit-dir: $tpcDsKitDir")
-    new TpcDsDataGen(
-      optionallyGet(m, "input"),
-      optionallyGet(m, "output"),
-      getOrDefault[String](m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
-      getOrDefault[String](m, "datadir", "tpcds-data")/*,
-      getOrDefault[String](m, "warehouse", "spark-warehouse"),
-      getOrDefault[Boolean](m, "clean", false),
-      tpcDsKitDir,
-      getOrDefault[Int](m, "tpcds-scale", 1),
-      getOrDefault[Int](m, "tpcds-partitions", 10),
-      tables */
-    )
+  private def mkKitDir(m: Map[String, Any]): Option[String] = m.get("tpcds-kit-dir") match {
+    case Some(d: String) => Some(d)
+    case _ => None
   }
+
+  def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
+    optionallyGet(m, "input"),
+    optionallyGet(m, "output"),
+    getOrDefault[String](m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
+    getOrDefault[String](m, "datadir", "tpcds-data"),
+    getOrDefault[String](m, "warehouse", "spark-warehouse"),
+    getOrDefault[Boolean](m, "clean", false),
+    mkKitDir(m),
+    getOrDefault[Int](m, "tpcds-scale", 1),
+    getOrDefault[Int](m, "tpcds-partitions", 1),
+    Option.empty[String]
+  )
 }
 
 case class TpcDsDataGen(
     input: Option[String],
     output: Option[String],
     repo: String,
-    dataDir: String/*,
+    dataDir: String,
     warehouse: String,
     clean: Boolean,
     tpcDsKitDir: Option[String],
-    tpdDsScale: Int,
+    tpcDsScale: Int,
     tpcDsPartitions: Int,
-    tpsDsTables: Option[String] */
+    tpcDsTables: Option[String]
   ) extends TpcDsBase(dataDir)
     with Workload {
   import TpcDsDataGen._
 
-  val clean = false
   protected def createDatabase(implicit spark: SparkSession): Unit = {
     spark.sql(s"DROP DATABASE IF EXISTS $tpcdsDatabaseName CASCADE")
     spark.sql(s"CREATE DATABASE $tpcdsDatabaseName")
@@ -83,11 +78,11 @@ case class TpcDsDataGen(
   }
 
   private def deleteFile1(tableName: String): Unit = {
-//    s"rm -rf $warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName/*".!
+    s"rm -rf $warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName/*".!
   }
 
   private def deleteFile2(tableName: String): Unit = {
-//    s"rm -rf $warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName".!
+    s"rm -rf $warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName".!
   }
 
   /**
@@ -136,9 +131,7 @@ case class TpcDsDataGen(
   }
 
   private def genData(kitDir: String)(implicit spark: SparkSession): Unit = {
-//    log.error(s"~~~~~~ conf tables: $tpsDsTables")
-    val tpcDsPartitions = 1000
-    val tpcDsScale = 1
+    log.error(s"~~~~~~ conf tables: $tpcDsTables")
     val t = "store_sales"
     spark.sparkContext.parallelize(0 until tpcDsPartitions, tpcDsPartitions).foreach { c =>
       s"""$kitDir/tools/dsdgen
@@ -154,11 +147,10 @@ case class TpcDsDataGen(
 
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
     implicit val impSpark: SparkSession = spark
-//    tpcDsKitDir match {
-//      case Some(kitDir) => genData(kitDir)
-//      case _ => genFromJourney
-//    }
-    genData("~/code/tpcds-kit_2.7.0")
+    tpcDsKitDir match {
+      case Some(kitDir) => genData(kitDir)
+      case _ => genFromJourney
+    }
     spark.emptyDataFrame
   }
 }
