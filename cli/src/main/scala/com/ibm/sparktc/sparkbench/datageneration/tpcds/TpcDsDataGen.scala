@@ -36,14 +36,28 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 object TpcDsDataGen extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
   val name = "tpcdsdatagen"
-  def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
-    optionallyGet(m, "input"),
-    optionallyGet(m, "output"),
-    getOrDefault(m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
-    getOrDefault(m, "datadir", "tpcds-data"),
-    getOrDefault(m, "warehouse", "spark-warehouse"),
-    getOrDefault(m, "clean", false)
-  )
+  def apply(m: Map[String, Any]): Workload = {
+    val tpcDsKitDir = m.get("tpcds-kit-dir") match {
+      case Some(d: String) => Some(d)
+      case _ => None
+    }
+
+    val tables = Option.empty[String]
+
+    log.error(s"tpcds-kit-dir: $tpcDsKitDir")
+    new TpcDsDataGen(
+      optionallyGet(m, "input"),
+      optionallyGet(m, "output"),
+      getOrDefault[String](m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
+      getOrDefault[String](m, "datadir", "tpcds-data"),
+      getOrDefault[String](m, "warehouse", "spark-warehouse"),
+      getOrDefault[Boolean](m, "clean", false),
+      tpcDsKitDir,
+      getOrDefault[Int](m, "tpcds-scale", 1),
+      getOrDefault[Int](m, "tpcds-partitions", 10),
+      tables
+    )
+  }
 }
 
 case class TpcDsDataGen(
@@ -52,7 +66,11 @@ case class TpcDsDataGen(
     repo: String,
     dataDir: String,
     warehouse: String,
-    clean: Boolean
+    clean: Boolean,
+    tpcDsKitDir: Option[String],
+    tpdDsScale: Int,
+    tpcDsPartitions: Int,
+    tpsDsTables: Option[String]
   ) extends TpcDsBase(dataDir)
     with Workload {
   import TpcDsDataGen._
@@ -82,7 +100,7 @@ case class TpcDsDataGen(
     deleteFile2(tableName)
     val (_, content) = spark.sparkContext.wholeTextFiles(s"hdfs:///$tpcdsDdlDir/$tableName.sql").collect()(0)
 
-    // Remove the replace for the .dat once it is fixed in the github repo
+    // Remove  the replace for the .dat once it is fixed in the github repo
     val sqlStmts = content.stripLineEnd
       .replace('\n', ' ')
       .replace("${TPCDS_GENDATA_DIR}", s"hdfs:///$tpcdsGenDataDir")
@@ -93,6 +111,7 @@ case class TpcDsDataGen(
 
   private def cleanup(): Unit = {
     "rm -rf $dataDir".!
+    // don't delete the hdfs directory bc probably won't have permissions to recreate it
     s"hdfs dfs -rm -r -f hdfs:///$dataDir/*".!
   }
 
@@ -107,13 +126,35 @@ case class TpcDsDataGen(
     }
   }
 
-  override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
-    implicit val impSpark: SparkSession = spark
+  private def genFromJourney(implicit spark: SparkSession): Unit = {
     "git --version".!
     retrieveRepo()
     createDatabase
     forEachTable(tables, createTable)
     spark.sql("show tables").collect.foreach(s => log.error(s.mkString(" | ")))
+  }
+
+  private def genData(kitDir: String)(implicit spark: SparkSession): Unit = {
+    log.error(s"~~~~~~ conf tables: $tpsDsTables")
+    val t = "store_sales"
+    spark.sparkContext.parallelize(0 until tpcDsPartitions, tpcDsPartitions).foreach { c =>
+      s"""$kitDir/tools/dsdgen
+         |  -SCALE $tpdDsScale
+         |  -TABLE $t
+         |  -CHILD $c
+         |  -PARALLEL $tpcDsPartitions
+         |  -DISTRIBUTIONS $kitDir/tools/tpcds.idx
+         |  -TERMINATE N
+         |  -FILTER Y | hdfs dfs -put - hdfs:///$tpcdsRootDir/$t/${t}_${c}_$tpcDsPartitions.dat &""".stripMargin.!
+    }
+  }
+
+  override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
+    implicit val impSpark: SparkSession = spark
+    tpcDsKitDir match {
+      case Some(kitDir) => genData(kitDir)
+      case _ => genFromJourney
+    }
     spark.emptyDataFrame
   }
 }
