@@ -32,7 +32,6 @@ import scala.util.Try
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, FileUtil, Path}
-import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
@@ -140,21 +139,19 @@ case class TpcDsDataGen(
     spark.sql("show tables").collect.foreach(s => log.error(s.mkString(" | ")))
   }
 
-  private def asyncCopy(file: File)(implicit bvRootDir: Broadcast[String], ec: ExSvc): Future[Boolean] = {
+  private def asyncCopy(file: File)(implicit ec: ExSvc): Future[Boolean] = Future {
     val conf = new Configuration()
-    val dstDir = new Path(s"hdfs:///${bvRootDir.value}", file.getName)
+    val dstDir = new Path(s"${output.getOrElse("hdfs:///tpcds-data")}", file.getName)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
-    Future(FileUtil.copy(file, dstFs, dstDir, false, conf)).recover {
-      case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false
-    }
-  }
+    FileUtil.copy(file, dstFs, dstDir, false, conf)
+  }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
 
   private def waitForFutures(futures: Seq[Future[Boolean]])(implicit ec: ExSvc): Seq[Boolean] = {
     try Await.result(Future.sequence(futures), Duration.Inf)
     finally ec.shutdown()
   }
 
-  private def copyToHdfs(f: File)(implicit bvRootDir: Broadcast[String]): Seq[(String, Boolean)] = {
+  private def copyToHdfs(f: File): Seq[(String, Boolean)] = {
     val files = f.listFiles
     if (files.nonEmpty) {
       implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(files.length))
@@ -169,12 +166,27 @@ case class TpcDsDataGen(
     log.debug(s"runCmd: ${cmd.mkString(" ")}")
     val (stdout, stderr) = (new StringBuilder, new StringBuilder)
     cmd ! ProcessLogger(stdout.append(_), stderr.append(_)) match {
-      case ret if ret == 0 && !stderr.toString().contains("ERROR") =>
+      case ret if ret == 0 && !stderr.toString.contains("ERROR") =>
         log.debug(s"stdout: $stdout\nstderr: $stderr")
       case ret =>
-        throw new RuntimeException(s"dsdgen failed: $ret\n${stderr.toString}")
+        throw new RuntimeException(s"dsdgen failed: $ret\n\nstderr\n${stderr.toString}")
     }
   }.recover { case e: Throwable => log.error(s"Failed to run command ${cmd.mkString(" ")}", e) }.isSuccess
+
+  private def validateResults(results: Array[(String, Boolean)]): Unit = {
+    results.foreach { i => log.error(i.toString) }
+    if (results.isEmpty) throw new RuntimeException("Data generation failed for tpcds. Check the executor logs for details.")
+    else {
+      val tablesPresentInOutput = TpcDsBase.tables.flatMap { table =>
+        results.find { case (fn, res) => fn.startsWith(table) && res } match {
+          case None => log.error(s"Failed to find $table in output"); None
+          case r => r
+        }
+      }
+      if (tablesPresentInOutput.length != TpcDsBase.tables.length)
+        log.error("Not all tables are present in the output. Check the executor logs for more details.")
+    }
+  }
 
   private def fixupDataDirPath: String = dataDir match {
     case d if d.nonEmpty && d.endsWith("/") => d
@@ -183,30 +195,27 @@ case class TpcDsDataGen(
   }
 
   private def genData(kitDir: String)(implicit spark: SparkSession): Unit = {
-    val bvScale = spark.sparkContext.broadcast(tpcDsScale)
-    val bvPartitions = spark.sparkContext.broadcast(tpcDsPartitions)
-    val bvKitDir = spark.sparkContext.broadcast(kitDir)
-    val bvDataDir = spark.sparkContext.broadcast(fixupDataDirPath)
-    implicit val bvRootDir = spark.sparkContext.broadcast(tpcdsRootDir)
-    spark.sparkContext.parallelize(1 to tpcDsPartitions, tpcDsPartitions).map { chile =>
-      val outputDir = s"${bvDataDir.value}tpcds$chile"
+    val rdd = spark.sparkContext.parallelize(1 to tpcDsPartitions, tpcDsPartitions).map { chile =>
+      val outputDir = s"${fixupDataDirPath}tpcds$chile"
       try {
         val f = new File(outputDir)
         if (!f.exists()) f.mkdirs
         log.error(s"Outputting data to ${f.getAbsolutePath}")
 
         val cmd = Seq(
-          s"${bvKitDir.value}/tools/dsdgen",
-          "-sc", s"${bvScale.value}",
+          s"$kitDir/tools/dsdgen",
+          "-sc", s"$tpcDsScale",
           "-child", s"$chile",
-          "-parallel", s"${bvPartitions.value}",
-          "-distributions", s"${bvKitDir.value}/tools/tpcds.idx",
+          "-parallel", s"$tpcDsPartitions",
+          "-distributions", s"$kitDir/tools/tpcds.idx",
           "-dir", outputDir
         )
         if (runCmd(cmd)) copyToHdfs(f)
-      } catch { case e: Throwable => log.error(s"Failed to handle partition #$chile", e) }
+        else Seq.empty[(String, Boolean)]
+      } catch { case e: Throwable => log.error(s"Failed to handle partition #$chile", e); Seq.empty[(String, Boolean)] }
       finally deleteDir(outputDir)
-    }.collect.foreach { i => log.error(i.toString) }
+    }
+    validateResults(rdd.collect.flatten)
   }
 
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
