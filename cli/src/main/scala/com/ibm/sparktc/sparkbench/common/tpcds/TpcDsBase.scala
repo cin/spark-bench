@@ -31,7 +31,7 @@ object TpcDsBase {
     "web_page", "web_site")
 }
 
-abstract class TpcDsBase(dataDir: String) {
+abstract class TpcDsBase(dataDir: String) extends Serializable {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
   protected val tables: Array[String] = TpcDsBase.tables
