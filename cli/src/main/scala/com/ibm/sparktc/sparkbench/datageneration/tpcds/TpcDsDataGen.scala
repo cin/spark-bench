@@ -160,6 +160,15 @@ case class TpcDsDataGen(
     } else Seq.empty
   }
 
+  private def mkCmd(kitDir: String, chile: Int, outputDir: String) = Seq(
+    s"$kitDir/tools/dsdgen",
+    "-sc", s"$tpcDsScale",
+    "-child", s"$chile",
+    "-parallel", s"$tpcDsPartitions",
+    "-distributions", s"$kitDir/tools/tpcds.idx",
+    "-dir", outputDir
+  )
+
   // runCmd runs the dsdgen command and checks the stderr to see if an error occurred
   // normally the return value of the command would indicate a failure but that's not how tpc-ds rolls
   private def runCmd(cmd: Seq[String]): Boolean = Try {
@@ -172,6 +181,12 @@ case class TpcDsDataGen(
         throw new RuntimeException(s"dsdgen failed: $ret\n\nstderr\n${stderr.toString}")
     }
   }.recover { case e: Throwable => log.error(s"Failed to run command ${cmd.mkString(" ")}", e) }.isSuccess
+
+  private def fixupDataDirPath: String = dataDir match {
+    case d if d.nonEmpty && d.endsWith("/") => d
+    case d if d.nonEmpty => d + "/"
+    case d => d
+  }
 
   private def validateResults(results: Array[(String, Boolean)]): Unit = {
     results.foreach { i => log.error(i.toString) }
@@ -188,12 +203,6 @@ case class TpcDsDataGen(
     }
   }
 
-  private def fixupDataDirPath: String = dataDir match {
-    case d if d.nonEmpty && d.endsWith("/") => d
-    case d if d.nonEmpty => d + "/"
-    case d => d
-  }
-
   private def genData(kitDir: String)(implicit spark: SparkSession): Unit = {
     val rdd = spark.sparkContext.parallelize(1 to tpcDsPartitions, tpcDsPartitions).map { chile =>
       val outputDir = s"${fixupDataDirPath}tpcds$chile"
@@ -201,16 +210,7 @@ case class TpcDsDataGen(
         val f = new File(outputDir)
         if (!f.exists()) f.mkdirs
         log.error(s"Outputting data to ${f.getAbsolutePath}")
-
-        val cmd = Seq(
-          s"$kitDir/tools/dsdgen",
-          "-sc", s"$tpcDsScale",
-          "-child", s"$chile",
-          "-parallel", s"$tpcDsPartitions",
-          "-distributions", s"$kitDir/tools/tpcds.idx",
-          "-dir", outputDir
-        )
-        if (runCmd(cmd)) copyToHdfs(f)
+        if (runCmd(mkCmd(kitDir, chile, outputDir))) copyToHdfs(f)
         else Seq.empty[(String, Boolean)]
       } catch { case e: Throwable => log.error(s"Failed to handle partition #$chile", e); Seq.empty[(String, Boolean)] }
       finally deleteDir(outputDir)
