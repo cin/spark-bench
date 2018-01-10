@@ -84,7 +84,8 @@ lazy val cli = project
     libraryDependencies ++= otherCompileDeps,
     libraryDependencies ++= testDeps,
     libraryDependencies ++= typesafe,
-    libraryDependencies ++= breezeDeps
+    libraryDependencies ++= breezeDeps,
+    libraryDependencies ++= jsonCreation
   )
   .dependsOn(utils % "compile->compile;test->test")
   .aggregate(utils)
@@ -135,7 +136,8 @@ lazy val `spark-launch` = project
     libraryDependencies ++= sparkDeps,
     libraryDependencies ++= otherCompileDeps,
     libraryDependencies ++= testDeps,
-    libraryDependencies ++= typesafe
+    libraryDependencies ++= typesafe,
+    libraryDependencies ++= jsonCreation
   )
   .dependsOn(utils % "compile->compile;test->test", cli % "compile->compile;test->test")
 
