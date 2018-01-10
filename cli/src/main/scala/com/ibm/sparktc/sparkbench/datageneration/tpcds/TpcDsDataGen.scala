@@ -38,28 +38,25 @@ import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 
-// TODO: resolve pathing issues in a more robust manner.
-// inserting hdfs was temporary just to get going
-
 object TpcDsDataGen extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
   val name = "tpcdsdatagen"
-
-  private def mkKitDir(m: Map[String, Any]): Option[String] = m.get("tpcds-kit-dir") match {
-    case Some(d: String) => Some(d)
-    case _ => None
-  }
 
   def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
     optionallyGet(m, "input"),
     optionallyGet(m, "output"),
     getOrDefault[String](m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
-    getOrDefault[String](m, "datadir", "tpcds-data"),
+    getOrDefault[String](m, "journeydir", "tpcds-journey"),
+    getOrDefault[String](m, "dbname", "tpcds"),
     getOrDefault[String](m, "warehouse", "spark-warehouse"),
     getOrDefault[Boolean](m, "clean", false),
-    mkKitDir(m),
+    getOrDefault[String](m, "fsprefix", "hdfs:///"),
+    optionallyGet(m, "tpcds-kit-dir"),
     getOrDefault[Int](m, "tpcds-scale", 1),
-    getOrDefault[Int](m, "tpcds-partitions", 1)
+    getOrDefault[Int](m, "tpcds-partitions", 1),
+    // scalastyle:off magic.number
+    getOrDefault[Int](m, "tpcds-rngseed", 100)
+    // scalastyle:on magic.number
   )
 }
 
@@ -67,15 +64,20 @@ case class TpcDsDataGen(
     input: Option[String],
     output: Option[String],
     repo: String,
-    dataDir: String,
+    journeyDir: String,
+    dbName: String,
     warehouse: String,
     clean: Boolean,
+    fsPrefix: String,
     tpcDsKitDir: Option[String],
     tpcDsScale: Int,
-    tpcDsPartitions: Int
-  ) extends TpcDsBase(dataDir)
+    tpcDsPartitions: Int,
+    tpcDsRngSeed: Int
+  ) extends TpcDsBase(journeyDir, dbName)
     with Workload {
   import TpcDsDataGen._
+
+  private val conf = new Configuration
 
   protected def createDatabase(implicit spark: SparkSession): Unit = {
     spark.sql(s"DROP DATABASE IF EXISTS $tpcdsDatabaseName CASCADE")
@@ -83,8 +85,8 @@ case class TpcDsDataGen(
     spark.sql(s"USE $tpcdsDatabaseName")
   }
 
-  private def deleteDir(dirName: String): Unit = Try {
-    log.debug(s"Deleting directory: $dirName")
+  private def deleteLocalDir(dirName: String): Unit = Try {
+    log.debug(s"Deleting local directory: $dirName")
     val f = new File(dirName)
     if (f.exists) {
       f.listFiles.foreach(_.delete)
@@ -93,55 +95,66 @@ case class TpcDsDataGen(
   }.recover { case e: Throwable => log.error(s"Failed to cleanup $dirName", e) }
 
   private def deleteTableFromDisk(tableName: String): Unit =
-    deleteDir(s"$warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName")
+    deleteLocalDir(s"$warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName")
+
+  private def getOutputDataDir = tpcDsKitDir match {
+    case Some(_) => output.getOrElse(s"${fsPrefix}tpcds-data")
+    case _ => s"$fsPrefix$tpcdsGenDataDir"
+  }
 
   /**
    * Function to create a table in spark. It reads the DDL script for each of the
    * tpc-ds table and executes it on Spark.
    */
   protected def createTable(tableName: String)(implicit spark: SparkSession): Unit = {
-    log.error(s"Creating table $tableName ..")
+    log.error(s"Creating table $tableName...")
     spark.sql(s"DROP TABLE IF EXISTS $tableName")
     deleteTableFromDisk(tableName)
-    val (_, content) = spark.sparkContext.wholeTextFiles(s"hdfs:///$tpcdsDdlDir/$tableName.sql").collect()(0)
+    val (_, content) = spark.sparkContext.wholeTextFiles(s"$fsPrefix$tpcdsDdlDir/$tableName.sql").collect()(0)
 
     // Remove the replace for the .dat once it is fixed in the github repo
     val sqlStmts = content.stripLineEnd
       .replace('\n', ' ')
-      .replace("${TPCDS_GENDATA_DIR}", s"hdfs:///$tpcdsGenDataDir")
+      .replace("${TPCDS_GENDATA_DIR}", s"$getOutputDataDir")
       .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat")
       .split(";")
     sqlStmts.map(spark.sql)
   }
 
   private def cleanup(): Unit = {
-    deleteDir(dataDir)
-    // don't delete the hdfs directory bc probably won't have permissions to recreate it
-    s"hdfs dfs -rm -r -f hdfs:///$dataDir/*".!
+    deleteLocalDir(journeyDir)
+    val dstDir = new Path(s"$fsPrefix$journeyDir")
+    val dstFs = FileSystem.get(dstDir.toUri, conf)
+    dstFs.delete(dstDir, true)
   }
 
   private def retrieveRepo(): Unit = {
     val dirExists = if (clean) {
       cleanup()
-      1
-    } else s"hdfs dfs -test -d hdfs:///$dataDir".!
-    if (dirExists != 0) {
-      if (!new File(dataDir).exists()) s"git clone --progress $repo $dataDir".!
-      s"hdfs dfs -copyFromLocal $dataDir hdfs:///".!
+      false
+    } else {
+      val dstDir = new Path(s"$fsPrefix$journeyDir")
+      val dstFs = FileSystem.get(dstDir.toUri, conf)
+      dstFs.isDirectory(dstDir)
+    }
+    if (!dirExists) {
+      if (!new File(journeyDir).exists()) s"git clone --progress $repo $journeyDir".!
+      val file = new File(journeyDir)
+      file.listFiles.foreach { f =>
+        val dstDir = new Path(s"$fsPrefix$journeyDir", f.getName)
+        val dstFs = FileSystem.get(dstDir.toUri, conf)
+        FileUtil.copy(f, dstFs, dstDir, false, conf)
+      }
     }
   }
 
   private def genFromJourney(implicit spark: SparkSession): Unit = {
     "git --version".!
     retrieveRepo()
-    createDatabase
-    forEachTable(tables, createTable)
-    spark.sql("show tables").collect.foreach(s => log.error(s.mkString(" | ")))
   }
 
   private def asyncCopy(file: File)(implicit ec: ExSvc): Future[Boolean] = Future {
-    val conf = new Configuration()
-    val dstDir = new Path(s"${output.getOrElse("hdfs:///tpcds-data")}", file.getName)
+    val dstDir = new Path(getOutputDataDir, file.getName)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
     FileUtil.copy(file, dstFs, dstDir, false, conf)
   }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
@@ -166,6 +179,7 @@ case class TpcDsDataGen(
     "-child", s"$chile",
     "-parallel", s"$tpcDsPartitions",
     "-distributions", s"$kitDir/tools/tpcds.idx",
+    "-rngseed", s"$tpcDsRngSeed",
     "-dir", outputDir
   )
 
@@ -182,10 +196,11 @@ case class TpcDsDataGen(
     }
   }.recover { case e: Throwable => log.error(s"Failed to run command ${cmd.mkString(" ")}", e) }.isSuccess
 
-  private def fixupDataDirPath: String = dataDir match {
-    case d if d.nonEmpty && d.endsWith("/") => d
-    case d if d.nonEmpty => d + "/"
-    case d => d
+  private def fixupOutputDirPath: String = output match {
+    case Some(d) if d.nonEmpty && d.endsWith("/") => d
+    case Some(d) if d.nonEmpty => d + "/"
+    case Some(d) => d
+    case _ => ""
   }
 
   private def validateResults(results: Array[(String, Boolean)]): Unit = {
@@ -199,31 +214,32 @@ case class TpcDsDataGen(
         }
       }
       if (tablesPresentInOutput.length != TpcDsBase.tables.length)
-        log.error("Not all tables are present in the output. Check the executor logs for more details.")
+        throw new RuntimeException("Not all tables are present in the output. Check the executor logs for more details.")
     }
   }
 
   private def genData(kitDir: String)(implicit spark: SparkSession): Unit = {
     val rdd = spark.sparkContext.parallelize(1 to tpcDsPartitions, tpcDsPartitions).map { chile =>
-      val outputDir = s"${fixupDataDirPath}tpcds$chile"
+      val outputDir = s"${fixupOutputDirPath}tpcds$chile"
       try {
         val f = new File(outputDir)
-        if (!f.exists()) f.mkdirs
-        log.error(s"Outputting data to ${f.getAbsolutePath}")
+        if (!f.exists) f.mkdirs
+        log.debug(s"Outputting data to ${f.getAbsolutePath}")
         if (runCmd(mkCmd(kitDir, chile, outputDir))) copyToHdfs(f)
         else Seq.empty[(String, Boolean)]
       } catch { case e: Throwable => log.error(s"Failed to handle partition #$chile", e); Seq.empty[(String, Boolean)] }
-      finally deleteDir(outputDir)
+      finally deleteLocalDir(outputDir)
     }
     validateResults(rdd.collect.flatten)
   }
 
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
-    implicit val impSpark: SparkSession = spark
-    tpcDsKitDir match {
-      case Some(kitDir) => genData(kitDir)
-      case _ => genFromJourney
-    }
+    implicit val explicitlyDeclaredImplicitSpark = spark
+    genFromJourney
+    tpcDsKitDir.foreach(genData)
+    createDatabase
+    forEachTable(tables, createTable)
+    spark.sql("show tables").collect.foreach(s => log.error(s.mkString(" | ")))
     spark.emptyDataFrame
   }
 }

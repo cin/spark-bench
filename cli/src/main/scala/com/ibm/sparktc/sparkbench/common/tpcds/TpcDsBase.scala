@@ -31,16 +31,16 @@ object TpcDsBase {
     "web_page", "web_site")
 }
 
-abstract class TpcDsBase(dataDir: String) extends Serializable {
+abstract class TpcDsBase(journeyDir: String, dbName: String) extends Serializable {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
   protected val tables: Array[String] = TpcDsBase.tables
 
-  protected val tpcdsRootDir: String = dataDir
+  protected val tpcdsRootDir: String = journeyDir
   protected val tpcdsDdlDir = s"$tpcdsRootDir/src/ddl/individual"
   protected val tpcdsGenDataDir = s"$tpcdsRootDir/src/data"
   protected val tpcdsQueriesDir = s"$tpcdsRootDir/src/queries"
-  protected val tpcdsDatabaseName = "TPCDS2G"
+  protected val tpcdsDatabaseName: String = dbName
 
   log.error(s"TPCDS root directory is at $tpcdsRootDir")
   log.error(s"TPCDS ddl scripts directory is at $tpcdsDdlDir")

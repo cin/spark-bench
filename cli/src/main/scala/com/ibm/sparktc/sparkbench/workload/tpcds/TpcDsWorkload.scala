@@ -60,7 +60,9 @@ object TpcDsWorkload extends WorkloadDefaults {
     TpcDsWorkload(
       optionallyGet(m, "input"),
       optionallyGet(m, "output"),
-      getOrThrowT(m, "datadir"),
+      getOrDefault[String](m, "journeydir", "tpcds-journey"),
+      getOrDefault[String](m, "dbname", "tpcds"),
+      getOrDefault[String](m, "fsprefix", "hdfs:///"),
       optionallyGet(m, "queries")
     )
   }
@@ -71,14 +73,16 @@ case class TpcDsQueryStats(queryName: String, duration: Long, resultLengh: Int)
 case class TpcDsWorkload(
     input: Option[String],
     output: Option[String],
-    dataDir: String,
+    journeyDir: String,
+    dbName: String,
+    fsPrefix: String,
     queries: Option[String]
-  ) extends TpcDsBase(dataDir)
+  ) extends TpcDsBase(journeyDir, dbName)
     with Workload {
   import TpcDsWorkload._
 
   private def runQuery(queryNum: Int)(implicit spark: SparkSession): Seq[TpcDsQueryStats] = {
-    val queryName = s"hdfs:///$tpcdsQueriesDir/query${f"$queryNum%02d"}.sql"
+    val queryName = s"$fsPrefix$tpcdsQueriesDir/query${f"$queryNum%02d"}.sql"
     val (_, content) = spark.sparkContext.wholeTextFiles(queryName).collect()(0)
     val queries = content.split("\n").filterNot(_.startsWith("--")).mkString(" ").split(";")
     if (queries.isEmpty) throw new Exception(s"No queries to run for $queryName - ")
