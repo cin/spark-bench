@@ -70,6 +70,10 @@ object SparkFuncs {
     else { throw SparkBenchException(errorMessage) }
   }
 
+  private val namesToFilter = Seq(
+    "table-options"
+  )
+
   def addConfToResults(df: DataFrame, m: Map[String, Any]): DataFrame = {
     def dealWithNones(a: Any): Any = a match {
       case None => ""
@@ -77,9 +81,10 @@ object SparkFuncs {
       case _ => a
     }
 
-    var ddf: DataFrame = df
-    m.foreach( keyValue => ddf = ddf.withColumn(keyValue._1, lit(dealWithNones(keyValue._2))) )
-    ddf
+    m.foldLeft(df) {
+      case (acc, keyValue) if namesToFilter.contains(keyValue._1) =>
+        acc.withColumn(keyValue._1, lit(dealWithNones(keyValue._2)))
+      case (acc, _) => acc
+    }
   }
-
 }

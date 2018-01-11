@@ -63,7 +63,7 @@ object TypesafeAccessories {
     val unwrapped = cfgObj.unwrapped().asScala.toMap
     val stuff: Map[String, Seq[Any]] = unwrapped.map(kv => {
       val newValue: Seq[Any] = kv._2 match {
-        case al: util.ArrayList[Any] => al.asScala
+        case al: util.ArrayList[_] => al.asScala
         case b: Any => Seq(b)
         //        case _ => throw SparkBenchException(s"Key ${kv._1} with value ${kv._2} had an unexpected type: ${kv._2.getClass.toString}")
       }
