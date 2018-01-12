@@ -21,13 +21,10 @@ import org.json4s._, native.JsonMethods._
 
 object TableOptions {
   private implicit val formats = DefaultFormats
-  def apply(m: Map[String, Any]): Option[Seq[TableOptions]] = m.get("table-options") match {
-    case Some(jsonTables: String) =>
-      val tables = parse(jsonTables).extract[Seq[TableOptions]]
-      if (tables.nonEmpty) Some(tables)
-      else None
-    case _ => throw new Exception(s"tables configuration item must be present in ${TpcDsDataGen.name} workload")
+  def apply(m: Map[String, Any]): Seq[TableOptions] = m.get("table-options") match {
+    case Some(jsonTables: String) => parse(jsonTables).extract[Seq[TableOptions]]
+    case _ => throw new Exception(s"table-options configuration item must be present in ${TpcDsDataGen.name} workload")
   }
 }
 
-case class TableOptions(name: String, partitions: Option[Int], partitionColumns: Option[Seq[String]])
+case class TableOptions(name: String, partitions: Option[Int], partitionColumns: Seq[String])

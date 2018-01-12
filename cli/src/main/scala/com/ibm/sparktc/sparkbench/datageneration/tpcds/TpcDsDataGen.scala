@@ -16,7 +16,7 @@
   */
 
 /**
- * All credit for this workload goes to the work by Xin Wu and his team while making their TPC-DS
+ * Much of the credit for this workload goes to the work by Xin Wu and his team while making their TPC-DS
  * journey. https://github.com/xwu0226/tpcds-journey-notebook
  */
 
@@ -52,6 +52,10 @@ object TpcDsDataGen extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
   val name = "tpcdsdatagen"
 
+  private val maxThreads = 20
+  private val rngSeedDefault = 100
+  private val scaleDefault = 1
+
   def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
     optionallyGet(m, "input"),
     optionallyGet(m, "output"),
@@ -63,10 +67,8 @@ object TpcDsDataGen extends WorkloadDefaults {
     getOrDefault[String](m, "fsprefix", "hdfs:///"),
     TableOptions(m),
     optionallyGet(m, "tpcds-kit-dir"),
-    getOrDefault[Int](m, "tpcds-scale", 1),
-    // scalastyle:off magic.number
-    getOrDefault[Int](m, "tpcds-rngseed", 100)
-    // scalastyle:on magic.number
+    getOrDefault[Int](m, "tpcds-scale", scaleDefault),
+    getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault)
   )
 }
 
@@ -79,7 +81,7 @@ case class TpcDsDataGen(
     warehouse: String,
     clean: Boolean,
     fsPrefix: String,
-    tableOptions: Option[Seq[TableOptions]],
+    tableOptions: Seq[TableOptions],
     tpcDsKitDir: Option[String],
     tpcDsScale: Int,
     tpcDsRngSeed: Int
@@ -106,7 +108,7 @@ case class TpcDsDataGen(
     deleteLocalDir(s"$warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName")
 
   private def getOutputDataDir = tpcDsKitDir match {
-    case Some(_) => output.getOrElse(s"${fsPrefix}tpcds-data")
+    case Some(_) => s"$fsPrefix${output.getOrElse(s"${fsPrefix}tpcds-data")}"
     case _ => s"$fsPrefix$tpcdsGenDataDir"
   }
 
@@ -178,7 +180,7 @@ case class TpcDsDataGen(
   private def copyToHdfs(f: File): Seq[(String, Boolean)] = {
     val files = f.listFiles
     if (files.nonEmpty) {
-      implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(files.length))
+      implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(math.min(files.length, maxThreads)))
       val futures = files.map(asyncCopy)
       files.map(_.getName).zip(waitForFutures(futures))
     } else Seq.empty
@@ -262,11 +264,7 @@ case class TpcDsDataGen(
   }
 
   private def genData(kitDir: String)(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableDataGenStats] = {
-    val seqOfRdds = tableOptions match {
-      case Some(topts) => genDataWithTiming(kitDir, topts)
-      case _ => throw new Exception( s"""No tables specified for generation.
-        | $name workloads must have a table-options configuration string""".stripMargin)
-    }
+    val seqOfRdds = genDataWithTiming(kitDir, tableOptions)
     val rdds = waitForFutures(seqOfRdds.map(_._3))
     validateResults(rdds.flatMap(_.collect).flatten)
     seqOfRdds.map(TpcDsTableDataGenStats(_))
@@ -277,7 +275,7 @@ case class TpcDsDataGen(
     import spark.sqlContext.implicits._
     genFromJourney
     val res = tpcDsKitDir.map { kitDir =>
-      implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(tableOptions.get.length))
+      implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(tableOptions.length))
       genData(kitDir)
     }
     createDatabase
