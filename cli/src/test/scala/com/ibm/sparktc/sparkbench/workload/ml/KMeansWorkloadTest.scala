@@ -21,8 +21,8 @@ import java.io.File
 
 import com.holdenkarau.spark.testing.Utils
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
-import com.ibm.sparktc.sparkbench.workload.ml.KMeansWorkload
 import com.ibm.sparktc.sparkbench.utils.SparkFuncs.{load, writeToDisk}
+import com.ibm.sparktc.sparkbench.workload.Workload
 import org.apache.spark.mllib.util.KMeansDataGenerator
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, Row}
@@ -61,7 +61,7 @@ class KMeansWorkloadTest extends FlatSpec with Matchers with BeforeAndAfterEach 
   "The load function" should "parse the DataFrame it's given into an RDD[Vector]" in {
     val df = makeDataFrame()
     val conf = Map("name" -> "kmeans", "input" -> "")
-    val work = KMeansWorkload(conf)
+    val work = KMeansWorkload(conf).asInstanceOf[KMeansWorkload]
     val ddf = work.reconcileSchema(df)
     val (_, rdd) = work.loadToCache(ddf, spark)
     rdd.first()
@@ -71,7 +71,7 @@ class KMeansWorkloadTest extends FlatSpec with Matchers with BeforeAndAfterEach 
     val df2Disk = makeDataFrame()
     writeToDisk(fileName, df2Disk, spark, Some("csv"))
     val conf = Map("name" -> "kmeans", "input" -> fileName)
-    val work = KMeansWorkload(conf)
+    val work = KMeansWorkload(conf).asInstanceOf[KMeansWorkload]
     val df = load(spark, fileName)
     val ddf = work.reconcileSchema(df)
     val (_, rdd) = work.loadToCache(ddf, spark)

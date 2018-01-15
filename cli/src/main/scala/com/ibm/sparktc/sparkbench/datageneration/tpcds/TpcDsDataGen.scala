@@ -40,14 +40,6 @@ import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 
-object TpcDsTableDataGenStats {
-  def apply[T](r: (String, Long, Future[RDD[Seq[(String, Boolean)]]])): TpcDsTableDataGenStats = {
-    new TpcDsTableDataGenStats(r._1, r._2)
-  }
-}
-
-case class TpcDsTableDataGenStats(table: String, duration: Long)
-
 object TpcDsDataGen extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
   val name = "tpcdsdatagen"
@@ -89,6 +81,16 @@ case class TpcDsDataGen(
     with Workload {
   import TpcDsDataGen._
 
+  private def syncCopy(file: File, outputDir: String)(implicit conf: Configuration) = {
+    val dstDir = new Path(outputDir, file.getName)
+    val dstFs = FileSystem.get(dstDir.toUri, conf)
+    FileUtil.copy(file, dstFs, dstDir, false, conf)
+  }
+
+  private def asyncCopy(file: File)(implicit ec: ExSvc, conf: Configuration): Future[Boolean] = Future {
+    syncCopy(file, getOutputDataDir)
+  }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
+
   protected def createDatabase(implicit spark: SparkSession): Unit = {
     spark.sql(s"DROP DATABASE IF EXISTS $tpcdsDatabaseName CASCADE")
     spark.sql(s"CREATE DATABASE $tpcdsDatabaseName")
@@ -107,10 +109,12 @@ case class TpcDsDataGen(
   private def deleteTableFromDisk(tableName: String): Unit =
     deleteLocalDir(s"$warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName")
 
-  private def getOutputDataDir = tpcDsKitDir match {
-    case Some(_) => s"$fsPrefix${output.getOrElse(s"${fsPrefix}tpcds-data")}"
-    case _ => s"$fsPrefix$tpcdsGenDataDir"
-  }
+  private def getOutputDataDir = s"$fsPrefix${
+    tpcDsKitDir match {
+      case Some(_) => output.getOrElse("tpcds-data")
+      case _ => tpcdsGenDataDir
+    }
+  }"
 
   /**
    * Function to create a table in spark. It reads the DDL script for each of the
@@ -125,7 +129,7 @@ case class TpcDsDataGen(
     // Remove the replace for the .dat once it is fixed in the github repo
     val sqlStmts = content.stripLineEnd
       .replace('\n', ' ')
-      .replace("${TPCDS_GENDATA_DIR}", s"$getOutputDataDir")
+      .replace("${TPCDS_GENDATA_DIR}", getOutputDataDir)
       .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat")
       .split(";")
     sqlStmts.map(spark.sql)
@@ -140,7 +144,7 @@ case class TpcDsDataGen(
   }
 
   private def retrieveRepo(): Unit = {
-    val conf = new Configuration
+    implicit val conf = new Configuration
     val dirExists = if (clean) {
       cleanup()
       false
@@ -152,11 +156,7 @@ case class TpcDsDataGen(
     if (!dirExists) {
       if (!new File(journeyDir).exists()) s"git clone --progress $repo $journeyDir".!
       val file = new File(journeyDir)
-      file.listFiles.foreach { f =>
-        val dstDir = new Path(s"$fsPrefix$journeyDir", f.getName)
-        val dstFs = FileSystem.get(dstDir.toUri, conf)
-        FileUtil.copy(f, dstFs, dstDir, false, conf)
-      }
+      file.listFiles.foreach(syncCopy(_, s"$fsPrefix$journeyDir"))
     }
   }
 
@@ -164,29 +164,22 @@ case class TpcDsDataGen(
     "git --version".!
     retrieveRepo()
   }
-
-  private def asyncCopy(file: File)(implicit ec: ExSvc): Future[Boolean] = Future {
-    val conf = new Configuration
-    val dstDir = new Path(getOutputDataDir, file.getName)
-    val dstFs = FileSystem.get(dstDir.toUri, conf)
-    FileUtil.copy(file, dstFs, dstDir, false, conf)
-  }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
-
   private def waitForFutures[T](futures: Seq[Future[T]])(implicit ec: ExSvc): Seq[T] = {
     try Await.result(Future.sequence(futures), Duration.Inf)
     finally ec.shutdown()
   }
 
-  private def copyToHdfs(f: File): Seq[(String, Boolean)] = {
+  private def copyToHdfs(f: File): Seq[TpcDsTableGenResults] = {
     val files = f.listFiles
     if (files.nonEmpty) {
       implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(math.min(files.length, maxThreads)))
+      implicit val conf = new Configuration
       val futures = files.map(asyncCopy)
-      files.map(_.getName).zip(waitForFutures(futures))
+      files.map(_.getName).zip(waitForFutures(futures)).map(TpcDsTableGenResults(_))
     } else Seq.empty
   }
 
-  private def mkCmd(kitDir: String, chile: Int, outputDir: String, topt: TableOptions) = {
+  private def mkCmd(kitDir: String, topt: TableOptions, chile: Int, outputDir: String) = {
     val cmd = Seq(
       s"$kitDir/tools/dsdgen",
       "-sc", s"$tpcDsScale",
@@ -223,21 +216,19 @@ case class TpcDsDataGen(
     case _ => ""
   }
 
-  private def validateResults(results: Seq[(String, Boolean)]): Unit = {
+  private def validateResults(results: Seq[TpcDsTableGenResults]): Unit = {
     results.foreach { i => log.error(i.toString) }
     if (results.isEmpty) throw new RuntimeException("Data generation failed for tpcds. Check the executor logs for details.")
     else {
       val tablesPresentInOutput = TpcDsBase.tables.flatMap { table =>
-        results.find { case (fn, res) => fn.startsWith(table) && res } match {
-          case None => log.error(s"Failed to find $table in output"); None
-          case r => r
-        }
+        results
+          .find { r => r.table == table && r.res }
+          .orElse { log.error(s"Failed to find $table in output"); None }
       }
       if (tablesPresentInOutput.length != TpcDsBase.tables.length)
         throw new RuntimeException("Not all tables are present in the output. Check the executor logs for more details.")
     }
   }
-
 
   private def genData(kitDir: String, topt: TableOptions, chile: Int) = {
     val outputDir = s"$fixupOutputDirPath${topt.name}"
@@ -245,13 +236,13 @@ case class TpcDsDataGen(
       val f = new File(outputDir)
       if (!f.exists) f.mkdirs
       log.debug(s"Outputting data to ${f.getAbsolutePath}")
-      if (runCmd(mkCmd(kitDir, chile, outputDir, topt))) copyToHdfs(f)
-      else Seq.empty[(String, Boolean)]
-    } catch { case e: Throwable => log.error(s"Failed to handle partition #$chile", e); Seq.empty[(String, Boolean)] }
+      if (runCmd(mkCmd(kitDir, topt, chile, outputDir))) copyToHdfs(f)
+      else Seq.empty[TpcDsTableGenResults]
+    } catch { case e: Throwable => log.error(s"Failed to handle partition #$chile", e); Seq.empty[TpcDsTableGenResults] }
     finally deleteLocalDir(outputDir)
   }
 
-  private def genData(kitDir: String, topt: TableOptions)(implicit spark: SparkSession, exSvc: ExSvc): Future[RDD[Seq[(String, Boolean)]]] = Future {
+  private def genData(kitDir: String, topt: TableOptions)(implicit spark: SparkSession, exSvc: ExSvc): Future[RDD[Seq[TpcDsTableGenResults]]] = Future {
     val numPartitions = topt.partitions.getOrElse(1)
     spark.sparkContext.parallelize(1 to numPartitions, numPartitions).map(genData(kitDir, topt, _))
   }
@@ -263,11 +254,11 @@ case class TpcDsDataGen(
     }
   }
 
-  private def genData(kitDir: String)(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableDataGenStats] = {
+  private def genData(kitDir: String)(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableGenStats] = {
     val seqOfRdds = genDataWithTiming(kitDir, tableOptions)
     val rdds = waitForFutures(seqOfRdds.map(_._3))
     validateResults(rdds.flatMap(_.collect).flatten)
-    seqOfRdds.map(TpcDsTableDataGenStats(_))
+    seqOfRdds.map(TpcDsTableGenStats(_))
   }
 
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
