@@ -19,6 +19,8 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import org.json4s._, native.JsonMethods._
 
+case class TableOptions(name: String, partitions: Option[Int], partitionColumns: Seq[String])
+
 object TableOptions {
   private implicit val formats = DefaultFormats
   def apply(m: Map[String, Any]): Seq[TableOptions] = m.get("table-options") match {
@@ -26,5 +28,3 @@ object TableOptions {
     case _ => throw new Exception(s"table-options configuration item must be present in ${TpcDsDataGen.name} workload")
   }
 }
-
-case class TableOptions(name: String, partitions: Option[Int], partitionColumns: Seq[String])

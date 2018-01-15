@@ -21,6 +21,25 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
 
 class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   "TpcDsDataGenTest" should "initialize properly given sane inputs" in {
-
+    //      optionallyGet(m, "input"),
+    //      optionallyGet(m, "output"),
+    //      getOrDefault[String](m, "repo", "https://github.com/SparkTC/tpcds-journey.git"),
+    //      getOrDefault[String](m, "journeydir", "tpcds-journey"),
+    //      getOrDefault[String](m, "dbname", "tpcds"),
+    //      getOrDefault[String](m, "warehouse", "spark-warehouse"),
+    //      getOrDefault[Boolean](m, "clean", false),
+    //      getOrDefault[String](m, "fsprefix", "hdfs:///"),
+    //      TableOptions(m),
+    //      optionallyGet(m, "tpcds-kit-dir"),
+    //      getOrDefault[Int](m, "tpcds-scale", scaleDefault),
+    //      getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault)
+    val confMap: Map[String, Any] = Map(
+      "output" -> Some("test-output"),
+      "journeydir" -> "test-journey",
+      "dbname" -> "test-db",
+      "warehouse" -> "test-warehouse",
+      "clean" -> false,
+      "fsprefix" -> "s3:///"
+    )
   }
 }
