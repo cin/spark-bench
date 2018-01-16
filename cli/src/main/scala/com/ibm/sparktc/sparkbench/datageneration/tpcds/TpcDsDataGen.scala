@@ -81,13 +81,13 @@ case class TpcDsDataGen(
     with Workload {
   import TpcDsDataGen._
 
-  private def syncCopy(file: File, outputDir: String)(implicit conf: Configuration) = {
+  private[tpcds] def syncCopy(file: File, outputDir: String)(implicit conf: Configuration) = {
     val dstDir = new Path(outputDir, file.getName)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
     FileUtil.copy(file, dstFs, dstDir, false, conf)
   }
 
-  private def asyncCopy(file: File)(implicit ec: ExSvc, conf: Configuration): Future[Boolean] = Future {
+  private[tpcds] def asyncCopy(file: File)(implicit ec: ExSvc, conf: Configuration): Future[Boolean] = Future {
     syncCopy(file, getOutputDataDir)
   }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
 
@@ -97,10 +97,10 @@ case class TpcDsDataGen(
     spark.sql(s"USE $tpcdsDatabaseName")
   }
 
-  private def deleteLocalDir(dirName: String): Unit = Try {
+  private[tpcds] def deleteLocalDir(dirName: String): Unit = Try {
     log.debug(s"Deleting local directory: $dirName")
     val f = new File(dirName)
-    if (f.exists) {
+    if (f.isDirectory) {
       f.listFiles.foreach(_.delete)
       f.delete
     }
@@ -109,7 +109,7 @@ case class TpcDsDataGen(
   private def deleteTableFromDisk(tableName: String): Unit =
     deleteLocalDir(s"$warehouse/${tpcdsDatabaseName.toLowerCase}.db/$tableName")
 
-  private def getOutputDataDir = s"$fsPrefix${
+  private[tpcds] def getOutputDataDir = s"$fsPrefix${
     tpcDsKitDir match {
       case Some(_) => output.getOrElse("tpcds-data")
       case _ => tpcdsGenDataDir
@@ -135,7 +135,7 @@ case class TpcDsDataGen(
     sqlStmts.map(spark.sql)
   }
 
-  private def cleanup(): Unit = {
+  private[tpcds] def cleanup(): Unit = {
     deleteLocalDir(journeyDir)
     val conf = new Configuration
     val dstDir = new Path(s"$fsPrefix$journeyDir")
@@ -143,7 +143,7 @@ case class TpcDsDataGen(
     dstFs.delete(dstDir, true)
   }
 
-  private def retrieveRepo(): Unit = {
+  private[tpcds] def retrieveRepo(): Unit = {
     implicit val conf = new Configuration
     val dirExists = if (clean) {
       cleanup()
@@ -164,7 +164,8 @@ case class TpcDsDataGen(
     "git --version".!
     retrieveRepo()
   }
-  private def waitForFutures[T](futures: Seq[Future[T]])(implicit ec: ExSvc): Seq[T] = {
+
+  private[tpcds] def waitForFutures[T](futures: Seq[Future[T]])(implicit ec: ExSvc): Seq[T] = {
     try Await.result(Future.sequence(futures), Duration.Inf)
     finally ec.shutdown()
   }
@@ -179,7 +180,7 @@ case class TpcDsDataGen(
     } else Seq.empty
   }
 
-  private def mkCmd(kitDir: String, topt: TableOptions, chile: Int, outputDir: String) = {
+  private[tpcds] def mkCmd(kitDir: String, topt: TableOptions, chile: Int, outputDir: String) = {
     val cmd = Seq(
       s"$kitDir/tools/dsdgen",
       "-sc", s"$tpcDsScale",
@@ -198,25 +199,27 @@ case class TpcDsDataGen(
 
   // runCmd runs the dsdgen command and checks the stderr to see if an error occurred
   // normally the return value of the command would indicate a failure but that's not how tpc-ds rolls
-  private def runCmd(cmd: Seq[String]): Boolean = Try {
+  private[tpcds] def runCmd(cmd: Seq[String]): Boolean = Try {
     log.debug(s"runCmd: ${cmd.mkString(" ")}")
     val (stdout, stderr) = (new StringBuilder, new StringBuilder)
     cmd ! ProcessLogger(stdout.append(_), stderr.append(_)) match {
       case ret if ret == 0 && !stderr.toString.contains("ERROR") =>
         log.debug(s"stdout: $stdout\nstderr: $stderr")
       case ret =>
-        throw new RuntimeException(s"dsdgen failed: $ret\n\nstderr\n${stderr.toString}")
+        val msg = s"dsdgen failed: $ret\n\nstderr\n${stderr.toString}"
+        log.error(msg)
+        throw new RuntimeException(msg)
     }
-  }.recover { case e: Throwable => log.error(s"Failed to run command ${cmd.mkString(" ")}", e) }.isSuccess
+  }.isSuccess
 
-  private def fixupOutputDirPath: String = output match {
+  private[tpcds] def fixupOutputDirPath: String = output match {
     case Some(d) if d.nonEmpty && d.endsWith("/") => d
     case Some(d) if d.nonEmpty => d + "/"
     case Some(d) => d
     case _ => ""
   }
 
-  private def validateResults(results: Seq[TpcDsTableGenResults]): Unit = {
+  private[tpcds] def validateResults(results: Seq[TpcDsTableGenResults]): Unit = {
     results.foreach { i => log.error(i.toString) }
     if (results.isEmpty) throw new RuntimeException("Data generation failed for tpcds. Check the executor logs for details.")
     else {
