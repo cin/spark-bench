@@ -138,25 +138,24 @@ case class TpcDsDataGen(
     sqlStmts.map(spark.sql)
   }
 
-  private[tpcds] def cleanup(): Unit = {
-    deleteLocalDir(journeyDir)
-    val conf = new Configuration
+  private[tpcds] def cleanupJourney(implicit conf: Configuration): Unit = if (clean) {
     val dstDir = new Path(s"$fsPrefix$journeyDir")
     val dstFs = FileSystem.get(dstDir.toUri, conf)
+    deleteLocalDir(journeyDir)
     dstFs.delete(dstDir, true)
+  }
+
+  private[tpcds] def doesJourneyExist(implicit conf: Configuration): Boolean = {
+    val dstDir = new Path(s"$fsPrefix$journeyDir")
+    val dstFs = FileSystem.get(dstDir.toUri, conf)
+    dstFs.isDirectory(dstDir)
   }
 
   private[tpcds] def retrieveRepo(): Unit = {
     implicit val conf = new Configuration
-    val dirExists = if (clean) {
-      cleanup()
-      false
-    } else {
-      val dstDir = new Path(s"$fsPrefix$journeyDir")
-      val dstFs = FileSystem.get(dstDir.toUri, conf)
-      dstFs.isDirectory(dstDir)
-    }
-    if (!dirExists) {
+    cleanupJourney
+    val journeyExists = doesJourneyExist
+    if (!journeyExists) {
       if (!new File(journeyDir).exists()) s"git clone --progress $repo $journeyDir".!
       val file = new File(journeyDir)
       file.listFiles.foreach(syncCopy(_, s"$fsPrefix$journeyDir"))
@@ -253,9 +252,9 @@ case class TpcDsDataGen(
     spark.sparkContext.parallelize(1 to numPartitions, numPartitions).map(genData(kitDir, topt, _))
   }
 
-  private def genDataWithTiming(kitDir: String, topts: Seq[TableOptions])(implicit spark: SparkSession, exSvc: ExSvc) = {
+  private[tpcds] def genDataWithTiming(kitDir: String, topts: Seq[TableOptions])(implicit spark: SparkSession, exSvc: ExSvc) = {
     topts.map { topt =>
-      val (t, res) = time(genData(kitDir, topt))
+      val (t, res: Future[RDD[Seq[TpcDsTableGenResults]]]) = time(genData(kitDir, topt))
       (topt.name, t, res)
     }
   }
