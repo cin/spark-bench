@@ -19,6 +19,8 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import java.util.concurrent.Executors.newFixedThreadPool
 
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
+import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
@@ -106,8 +108,8 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   private val confMapTest: Map[String, Any] = Map(
     "output" -> "test-output",
     "journeydir" -> "test-journey",
-    "dbname" -> "test-db",
-    "warehouse" -> "test-warehouse",
+    "dbname" -> "testdb",
+    "warehouse" -> "spark-warehouse",
     "clean" -> false,
     "fsprefix" -> "hdfs://localhost:9000/",
     "tpcds-kit-dir" -> "kit-dir",
@@ -121,8 +123,8 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     workload.input should not be defined
     workload.output shouldBe Some("test-output")
     workload.journeyDir shouldBe "test-journey"
-    workload.dbName shouldBe "test-db"
-    workload.warehouse shouldBe "test-warehouse"
+    workload.dbName shouldBe "testdb"
+    workload.warehouse shouldBe "spark-warehouse"
     workload.clean shouldBe false
     workload.fsPrefix shouldBe "hdfs://localhost:9000/"
     workload.tpcDsKitDir shouldBe Some("kit-dir")
@@ -182,6 +184,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
 
     val f1 = new java.io.File(dirName)
     f1.exists shouldBe false
+    f1.isDirectory shouldBe false
   }
 
   it should "get the right output data dir when kit dir is set" in {
@@ -323,6 +326,10 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     thrown.getMessage shouldBe "Not all tables are present in the output. Check the executor logs for more details."
   }
 
+  /////////////////////////////////////////////////////////////////////////////////////////////
+  // integration type tests
+  /////////////////////////////////////////////////////////////////////////////////////////////
+
   private def checkCleanup(): Unit = {
     val journeyDir = confMapTest("journeydir").asInstanceOf[String]
     val fsPrefix = confMapTest("fsprefix").asInstanceOf[String]
@@ -337,7 +344,8 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     dstFs.isDirectory(dstDir) shouldBe false
   }
 
-  it should "cleanup the journey from the local filesystem and HDFS initially" in {
+  // ignore the cleanup tests so the journey won't have to be downloaded every time the tests run
+  ignore should "cleanup the journey from the local filesystem and HDFS initially" in {
     val workload = TpcDsDataGen(confMapTest + ("output" -> "")).asInstanceOf[TpcDsDataGen]
     workload.cleanup()
     checkCleanup()
@@ -359,7 +367,24 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     dstFs.isDirectory(dstDir) shouldBe true
   }
 
-  it should "cleanup the journey from the local filesystem and HDFS" in {
+  it should "createDatabase based on the journey" in {
+    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
+    implicit val spark = SparkSessionProvider.spark
+    workload.createDatabase
+    val dbs = spark.sql("show databases").collect
+    dbs.find(_.getAs[String]("databaseName") == "testdb") shouldBe defined
+  }
+
+  it should "createTables based on the journey" in {
+    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
+    implicit val spark = SparkSessionProvider.spark
+    val tableName = TpcDsBase.tables.head
+    workload.createTable(tableName)
+    val tables = spark.sql("show tables").collect
+    tables.find(_.getAs[String]("tableName") == tableName) shouldBe defined
+  }
+
+  ignore should "cleanup the journey from the local filesystem and HDFS" in {
     val workload = TpcDsDataGen(confMapTest + ("output" -> "")).asInstanceOf[TpcDsDataGen]
     workload.cleanup()
     checkCleanup()

@@ -91,7 +91,7 @@ case class TpcDsDataGen(
     syncCopy(file, getOutputDataDir)
   }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
 
-  protected def createDatabase(implicit spark: SparkSession): Unit = {
+  protected[tpcds] def createDatabase(implicit spark: SparkSession): Unit = {
     spark.sql(s"DROP DATABASE IF EXISTS $tpcdsDatabaseName CASCADE")
     spark.sql(s"CREATE DATABASE $tpcdsDatabaseName")
     spark.sql(s"USE $tpcdsDatabaseName")
@@ -101,7 +101,10 @@ case class TpcDsDataGen(
     log.debug(s"Deleting local directory: $dirName")
     val f = new File(dirName)
     if (f.isDirectory) {
-      f.listFiles.foreach(_.delete)
+      f.listFiles.foreach {
+        case ff if ff.isDirectory => deleteLocalDir(ff.getAbsolutePath)
+        case ff => ff.delete
+      }
       f.delete
     }
   }.recover { case e: Throwable => log.error(s"Failed to cleanup $dirName", e) }
@@ -120,7 +123,7 @@ case class TpcDsDataGen(
    * Function to create a table in spark. It reads the DDL script for each of the
    * tpc-ds table and executes it on Spark.
    */
-  protected def createTable(tableName: String)(implicit spark: SparkSession): Unit = {
+  protected[tpcds] def createTable(tableName: String)(implicit spark: SparkSession): Unit = {
     log.error(s"Creating table $tableName...")
     spark.sql(s"DROP TABLE IF EXISTS $tableName")
     deleteTableFromDisk(tableName)
