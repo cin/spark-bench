@@ -227,7 +227,7 @@ case class TpcDsDataGen(
     else {
       val tablesPresentInOutput = TpcDsBase.tables.flatMap { table =>
         results
-          .find { r => r.table == table && r.res }
+          .find { r => r.table.startsWith(table) && r.res }
           .orElse { log.error(s"Failed to find $table in output"); None }
       }
       if (tablesPresentInOutput.length != TpcDsBase.tables.length)
@@ -236,7 +236,7 @@ case class TpcDsDataGen(
   }
 
   private def genData(kitDir: String, topt: TableOptions, chile: Int) = {
-    val outputDir = s"$fixupOutputDirPath${topt.name}"
+    val outputDir = s"$fixupOutputDirPath${topt.name}$chile"
     try {
       val f = new File(outputDir)
       if (!f.exists) f.mkdirs
@@ -254,7 +254,7 @@ case class TpcDsDataGen(
 
   private[tpcds] def genDataWithTiming(kitDir: String, topts: Seq[TableOptions])(implicit spark: SparkSession, exSvc: ExSvc) = {
     topts.map { topt =>
-      val (t, res: Future[RDD[Seq[TpcDsTableGenResults]]]) = time(genData(kitDir, topt))
+      val (t, res) = time(genData(kitDir, topt))
       (topt.name, t, res)
     }
   }

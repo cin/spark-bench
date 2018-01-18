@@ -331,6 +331,8 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   // integration type tests
   /////////////////////////////////////////////////////////////////////////////////////////////
 
+  private val kitDir = "/Users/cingram/code/tpcds-kit_2.7.0"
+
   private def checkCleanup(): Unit = {
     val journeyDir = confMapTest("journeydir").asInstanceOf[String]
     val fsPrefix = confMapTest("fsprefix").asInstanceOf[String]
@@ -406,8 +408,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     workload.deleteLocalDir(workload.fixupOutputDirPath)
   }
 
-  it should "genData using the TPC-DS kit with no partitioning" in {
-    val kitDir = "/Users/cingram/code/tpcds-kit_2.7.0"
+  ignore should "genData using the TPC-DS kit with no partitioning" in {
     val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir)).asInstanceOf[TpcDsDataGen]
 
     cleanupOutput(workload)
@@ -429,11 +430,12 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     }
   }
 
-  it should "genData using the TPC-DS kit with partitioning" in {
-    val kitDir = "/Users/cingram/code/tpcds-kit_2.7.0"
+  ignore should "genData using the TPC-DS kit with partitioning" in {
     val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir) + ("tpcds-scale" -> 1)).asInstanceOf[TpcDsDataGen]
     val numPartitions = 10
+
     cleanupOutput(workload)
+
     implicit val spark = SparkSessionProvider.spark
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(numPartitions))
     val results = workload.genDataWithTiming(kitDir, Seq(TableOptions("inventory", Some(numPartitions), Seq.empty)))
@@ -443,18 +445,17 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     results.head._2 should be < Long.MaxValue
     val r0 = workload.waitForFutures(Seq(results.head._3))
     r0 should have size 1
-    r0.zipWithIndex.foreach { case (r, i) =>
+    r0.foreach { r =>
       val r1 = r.collect.flatten
       r1 should have size numPartitions
-      r1.foreach { rr =>
-        rr.table shouldBe s"inventory_${i}_$numPartitions.dat"
+      r1.zipWithIndex.foreach { case (rr, i) =>
+        rr.table shouldBe s"inventory_${i + 1}_$numPartitions.dat"
         rr.res shouldBe true
       }
     }
   }
 
   it should "cleanup output" in {
-    val kitDir = "/Users/cingram/code/tpcds-kit_2.7.0"
     val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir) + ("tpcds-scale" -> 1)).asInstanceOf[TpcDsDataGen]
     cleanupOutput(workload)
   }
