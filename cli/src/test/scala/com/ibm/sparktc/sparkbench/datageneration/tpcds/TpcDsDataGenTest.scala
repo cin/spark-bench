@@ -21,6 +21,7 @@ import java.util.concurrent.Executors.newFixedThreadPool
 
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
+import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
@@ -105,15 +106,16 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
 
   private implicit val conf = new Configuration
 
+  private val dbName = "testdb"
   private val confMapTest: Map[String, Any] = Map(
     "output" -> "test-output",
     "journeydir" -> "test-journey",
-    "dbname" -> "testdb",
+    "dbname" -> dbName,
     "warehouse" -> "spark-warehouse",
     "clean" -> false,
     "fsprefix" -> "hdfs://localhost:9000/",
     "tpcds-kit-dir" -> "kit-dir",
-    "tpcds-scale" -> 3,
+    "tpcds-scale" -> 1,
     "tpcds-rngseed" -> 8,
     "table-options" -> tableOptions
   )
@@ -128,7 +130,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     workload.clean shouldBe false
     workload.fsPrefix shouldBe "hdfs://localhost:9000/"
     workload.tpcDsKitDir shouldBe Some("kit-dir")
-    workload.tpcDsScale shouldBe 3
+    workload.tpcDsScale shouldBe 1
     workload.tpcDsRngSeed shouldBe 8
     workload.tableOptions should have size 21
     // TableOptionsTest validations proper parsing of table-options
@@ -155,7 +157,8 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   it should "asyncCopy" in {
     implicit val conf = new Configuration
     val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
-    val dstDir = new Path(workload.getOutputDataDir)
+    val outputDir = workload.getOutputDataDir
+    val dstDir = new Path(outputDir)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
     val tmpFile = java.nio.file.Files.createTempFile("foo", "tmp")
 
@@ -166,9 +169,13 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     }
 
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(1))
-    val f = workload.asyncCopy(tmpFile.toFile)
+    val f = workload.asyncCopy(tmpFile.toFile, "foo")
     val results = workload.waitForFutures(Seq(f))
     results.forall(_ == true) shouldBe true
+
+    val dstFn = new Path(s"$outputDir/foo", tmpFile.toFile.getName)
+    val dstFs1 = FileSystem.get(dstDir.toUri, conf)
+    dstFs1.exists(dstFn) shouldBe true
     if (createdDir) dstFs.delete(dstDir, true)
   }
 
@@ -202,7 +209,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     val cmd = workload.mkCmd("kit-dir", TableOptions("foo", None, Seq.empty), 0, "test-output")
     val expected = Seq(
       s"kit-dir/tools/dsdgen",
-      "-sc", "3",
+      "-sc", "1",
       "-distributions", "kit-dir/tools/tpcds.idx",
       "-rngseed", "8",
       "-table", "foo",
@@ -216,7 +223,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     val cmd = workload.mkCmd("kit-dir", TableOptions("foo", Some(8), Seq.empty), 2, "test-output") // scalastyle:ignore
     val expected = Seq(
       s"kit-dir/tools/dsdgen",
-      "-sc", "3",
+      "-sc", "1",
       "-distributions", "kit-dir/tools/tpcds.idx",
       "-rngseed", "8",
       "-table", "foo",
@@ -285,10 +292,13 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
       TpcDsTableGenResults("web_page", res = true),
       TpcDsTableGenResults("web_site", res = true)
     )
+
+    implicit val spark = SparkSessionProvider.spark
     workload.validateResults(results)
   }
 
   it should "fail to validateResults when appropriate" in {
+    implicit val spark = SparkSessionProvider.spark
     val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
     val thrown = the[RuntimeException] thrownBy workload.validateResults(Seq.empty)
     thrown.getMessage shouldBe "Data generation failed for tpcds. Check the executor logs for details."
@@ -322,6 +332,8 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
       TpcDsTableGenResults("web_page", res = true),
       TpcDsTableGenResults("web_site", res = true)
     )
+
+    implicit val spark = SparkSessionProvider.spark
     val thrown = the[RuntimeException] thrownBy workload.validateResults(results)
     thrown.getMessage shouldBe "Not all tables are present in the output. Check the executor logs for more details."
   }
@@ -347,18 +359,18 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   }
 
   // ignore the cleanup tests so the journey won't have to be downloaded every time the tests run
-  ignore should "cleanup the journey from the local filesystem and HDFS initially" in {
-    implicit val conf = new Configuration()
-    val workload = TpcDsDataGen(confMapTest + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
-    workload.cleanupJourney
-    checkCleanup()
-  }
-
-  ignore should "determine if the journey exists after cleanup" in {
-    implicit val conf = new Configuration()
-    val workload = TpcDsDataGen(confMapTest + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
-    workload.doesJourneyExist shouldBe false
-  }
+//  it should "cleanup the journey from the local filesystem and HDFS initially" in {
+//    implicit val conf = new Configuration()
+//    val workload = TpcDsDataGen(confMapTest + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
+//    workload.cleanupJourney
+//    checkCleanup()
+//  }
+//
+//  it should "determine if the journey exists after cleanup" in {
+//    implicit val conf = new Configuration()
+//    val workload = TpcDsDataGen(confMapTest + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
+//    workload.doesJourneyExist shouldBe false
+//  }
 
   it should "retrieve the journey's repository" in {
     val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
@@ -407,59 +419,68 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     workload.deleteLocalDir(workload.fixupOutputDirPath)
   }
 
-  ignore should "genData using the TPC-DS kit with no partitioning" in {
+  private def genDataTest(tableName: String, numPartitions: Option[Int]): Unit = {
     val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir)).asInstanceOf[TpcDsDataGen]
 
     cleanupOutput(workload)
 
     implicit val spark = SparkSessionProvider.spark
-    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(1))
-    val results = workload.genDataWithTiming(kitDir, Seq(TableOptions("call_center", None, Seq.empty)))
+    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(numPartitions.getOrElse(1)))
+    val (dur, results) = time(workload.genDataWithTiming(kitDir, Seq(TableOptions(tableName, numPartitions, Seq.empty))))
     results should have size 1
-    results.head._1 shouldBe "call_center"
+    results.head._1 shouldBe tableName
     results.head._2 should be > 0L
-    results.head._2 should be < Long.MaxValue
-    val r0 = workload.waitForFutures(Seq(results.head._3))
-    r0 should have size 1
-    r0.foreach { r =>
-      val rr = r.collect.flatten
-      rr should have size 1
-      rr.head.table shouldBe "call_center.dat"
-      rr.head.res shouldBe true
-    }
-  }
-
-  ignore should "genData using the TPC-DS kit with partitioning" in {
-    val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir) + ("tpcds-scale" -> 1)).asInstanceOf[TpcDsDataGen]
-    val numPartitions = 10
-
-    cleanupOutput(workload)
-
-    implicit val spark = SparkSessionProvider.spark
-    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(numPartitions))
-    val results = workload.genDataWithTiming(kitDir, Seq(TableOptions("inventory", Some(numPartitions), Seq.empty)))
-    results should have size 1
-    results.head._1 shouldBe "inventory"
-    results.head._2 should be > 0L
-    results.head._2 should be < Long.MaxValue
+    results.head._2 should be <= dur
     val r0 = workload.waitForFutures(Seq(results.head._3))
     r0 should have size 1
     r0.foreach { r =>
       val r1 = r.collect.flatten
-      r1 should have size numPartitions
-      r1.zipWithIndex.foreach { case (rr, i) =>
-        rr.table shouldBe s"inventory_${i + 1}_$numPartitions.dat"
-        rr.res shouldBe true
+      numPartitions match {
+        case Some(np) =>
+          r1 should have size np
+          r1.zipWithIndex.foreach { case (rr, i) =>
+            rr.table shouldBe s"${tableName}_${i + 1}_$np.dat"
+            rr.res shouldBe true
+          }
+        case _ =>
+          r1 should have size 1
+          r1.head.table shouldBe s"$tableName.dat"
+          r1.head.res shouldBe true
       }
     }
+
+    spark.sql(s"DROP DATABASE IF EXISTS $dbName CASCADE")
+    spark.sql(s"CREATE DATABASE $dbName")
+    spark.sql(s"USE $dbName")
+
+    workload.createTable(tableName)
+    workload.validateRowCount(tableName)
+
+    spark.sql(s"DROP DATABASE IF EXISTS $dbName CASCADE")
+    workload.deleteTableFromDisk(tableName)
+  }
+
+  it should "genData using the TPC-DS kit with no partitioning" in {
+    genDataTest("call_center", None)
+  }
+
+  it should "genData using the TPC-DS kit with partitioning" in {
+    genDataTest("inventory", Some(10)) // scalastyle:ignore
   }
 
   it should "cleanup output" in {
-    val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir) + ("tpcds-scale" -> 1)).asInstanceOf[TpcDsDataGen]
+    val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir)).asInstanceOf[TpcDsDataGen]
     cleanupOutput(workload)
   }
 
-  ignore should "cleanup the journey from the local filesystem and HDFS" in {
+  it should "doWorkload" in {
+    val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir) + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
+    val spark = SparkSessionProvider.spark
+    val df = workload.doWorkload(None, spark)
+    df.collect.foreach(println)
+  }
+
+  it should "cleanup the journey from the local filesystem and HDFS" in {
     implicit val conf = new Configuration()
     val workload = TpcDsDataGen(confMapTest + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
     workload.cleanupJourney
