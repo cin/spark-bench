@@ -19,7 +19,6 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import java.util.concurrent.Executors.newFixedThreadPool
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import org.apache.hadoop.conf.Configuration
@@ -107,29 +106,41 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   private implicit val conf = new Configuration
 
   private val dbName = "testdb"
+
+  // TODO: is there a less brittle way to do this?
+  private val cwd = new java.io.File(".").getCanonicalPath
+  private val kitDir= s"$cwd/cli/src/test/resources/tpcds/${
+    sys.props("os.name") match {
+      case "Linux" => "linux"
+      case _ => "osx"
+    }
+  }"
+
   private val confMapTest: Map[String, Any] = Map(
     "output" -> "test-output",
-    "journeydir" -> "test-journey",
     "dbname" -> dbName,
     "warehouse" -> "spark-warehouse",
     "clean" -> false,
     "fsprefix" -> "hdfs://localhost:9000/",
-    "tpcds-kit-dir" -> "kit-dir",
+    "tpcds-kit-dir" -> kitDir,
     "tpcds-scale" -> 1,
     "tpcds-rngseed" -> 8,
     "table-options" -> tableOptions
   )
 
+  private def mkWorkload: TpcDsDataGen = mkWorkload(confMapTest)
+  private def mkWorkload(confMap: Map[String, Any]): TpcDsDataGen =
+    TpcDsDataGen(confMap).asInstanceOf[TpcDsDataGen]
+
   "TpcDsDataGenTest" should "initialize properly given sane inputs" in {
-    val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     workload.input should not be defined
     workload.output shouldBe Some("test-output")
-    workload.journeyDir shouldBe "test-journey"
     workload.dbName shouldBe "testdb"
     workload.warehouse shouldBe "spark-warehouse"
     workload.clean shouldBe false
     workload.fsPrefix shouldBe "hdfs://localhost:9000/"
-    workload.tpcDsKitDir shouldBe Some("kit-dir")
+    workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsScale shouldBe 1
     workload.tpcDsRngSeed shouldBe 8
     workload.tableOptions should have size 21
@@ -137,7 +148,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   }
 
   it should "syncCopy files to HDFS" in {
-    val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     val tmpFile = java.nio.file.Files.createTempFile("foo", "tmp")
     val dirString = "hdfs://localhost:9000/foo-tmp"
     val dstDir = new Path(dirString)
@@ -156,7 +167,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
 
   it should "asyncCopy" in {
     implicit val conf = new Configuration
-    val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     val outputDir = workload.getOutputDataDir
     val dstDir = new Path(outputDir)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
@@ -186,7 +197,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     val f = new java.io.File(dirName)
     f.isDirectory shouldBe true
 
-    val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     workload.deleteLocalDir(dirName)
 
     val f1 = new java.io.File(dirName)
@@ -195,22 +206,17 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   }
 
   it should "get the right output data dir when kit dir is set" in {
-    val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     workload.getOutputDataDir shouldBe "hdfs://localhost:9000/test-output"
   }
 
-  it should "get the right output data dir when kit dir is not set" in {
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
-    workload.getOutputDataDir shouldBe "hdfs://localhost:9000/test-journey/src/data"
-  }
-
   it should "mkCmd without partitions" in {
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
-    val cmd = workload.mkCmd("kit-dir", TableOptions("foo", None, Seq.empty), 0, "test-output")
+    val workload = mkWorkload
+    val cmd = workload.mkCmd(TableOptions("foo", None, Seq.empty), 0, "test-output")
     val expected = Seq(
-      s"kit-dir/tools/dsdgen",
+      s"$kitDir/tools/dsdgen",
       "-sc", "1",
-      "-distributions", "kit-dir/tools/tpcds.idx",
+      "-distributions", s"$kitDir/tools/tpcds.idx",
       "-rngseed", "8",
       "-table", "foo",
       "-dir", "test-output"
@@ -219,12 +225,12 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   }
 
   it should "mkCmd with partitions" in {
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
-    val cmd = workload.mkCmd("kit-dir", TableOptions("foo", Some(8), Seq.empty), 2, "test-output") // scalastyle:ignore
+    val workload = mkWorkload
+    val cmd = workload.mkCmd(TableOptions("foo", Some(8), Seq.empty), 2, "test-output") // scalastyle:ignore
     val expected = Seq(
-      s"kit-dir/tools/dsdgen",
+      s"$kitDir/tools/dsdgen",
       "-sc", "1",
-      "-distributions", "kit-dir/tools/tpcds.idx",
+      "-distributions", s"$kitDir/tools/tpcds.idx",
       "-rngseed", "8",
       "-table", "foo",
       "-dir", "test-output",
@@ -235,37 +241,37 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   }
 
   it should "runCmd successfully" in {
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     workload.runCmd(Seq("ls", "-al")) shouldBe true
   }
 
   it should "runCmd and fail appropriately" in {
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     workload.runCmd(Seq("thisisnota", "-command")) shouldBe false
   }
 
   it should "fixupOutputDirPath without a trailing slash" in {
-    val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     workload.fixupOutputDirPath shouldBe "test-output/"
   }
 
   it should "fixupOutputDirPath with a trailing slash" in {
-    val workload = TpcDsDataGen(confMapTest + ("output" -> "test-output/")).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload(confMapTest + ("output" -> "test-output/"))
     workload.fixupOutputDirPath shouldBe "test-output/"
   }
 
   it should "fixupOutputDirPath with an empty output path" in {
-    val workload = TpcDsDataGen(confMapTest + ("output" -> "")).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload(confMapTest + ("output" -> ""))
     workload.fixupOutputDirPath shouldBe ""
   }
 
   it should "fixupOutputDirPath with no output" in {
-    val workload = TpcDsDataGen(confMapTest - "output").asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload(confMapTest - "output")
     workload.fixupOutputDirPath shouldBe ""
   }
 
   it should "validateResults successfully" in {
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     val results = Seq(
       TpcDsTableGenResults("call_center", res = true),
       TpcDsTableGenResults("catalog_sales", res = true),
@@ -299,13 +305,13 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
 
   it should "fail to validateResults when appropriate" in {
     implicit val spark = SparkSessionProvider.spark
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     val thrown = the[RuntimeException] thrownBy workload.validateResults(Seq.empty)
     thrown.getMessage shouldBe "Data generation failed for tpcds. Check the executor logs for details."
   }
 
   it should "fail to validateResults when any table fails" in {
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
     val results = Seq(
       TpcDsTableGenResults("call_center", res = true),
       TpcDsTableGenResults("catalog_sales", res = true),
@@ -342,74 +348,72 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   // integration type tests
   /////////////////////////////////////////////////////////////////////////////////////////////
 
-  private val kitDir = "/Users/cingram/code/tpcds-kit_2.7.0"
-
-  private def checkCleanup(): Unit = {
-    val journeyDir = confMapTest("journeydir").asInstanceOf[String]
-    val fsPrefix = confMapTest("fsprefix").asInstanceOf[String]
-
-    val f = new java.io.File(journeyDir)
-    f.exists shouldBe false
-    f.isDirectory shouldBe false
-
-    val dstDir = new Path(s"$fsPrefix$journeyDir")
-    val dstFs = FileSystem.get(dstDir.toUri, conf)
-    dstFs.exists(dstDir) shouldBe false
-    dstFs.isDirectory(dstDir) shouldBe false
-  }
+//  private def checkCleanup(): Unit = {
+//    val journeyDir = confMapTest("journeydir").asInstanceOf[String]
+//    val fsPrefix = confMapTest("fsprefix").asInstanceOf[String]
+//
+//    val f = new java.io.File(journeyDir)
+//    f.exists shouldBe false
+//    f.isDirectory shouldBe false
+//
+//    val dstDir = new Path(s"$fsPrefix$journeyDir")
+//    val dstFs = FileSystem.get(dstDir.toUri, conf)
+//    dstFs.exists(dstDir) shouldBe false
+//    dstFs.isDirectory(dstDir) shouldBe false
+//  }
 
   // ignore the cleanup tests so the journey won't have to be downloaded every time the tests run
 //  it should "cleanup the journey from the local filesystem and HDFS initially" in {
 //    implicit val conf = new Configuration()
-//    val workload = TpcDsDataGen(confMapTest + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
+//    val workload = mkWorkload(confMapTest + ("clean" -> true))
 //    workload.cleanupJourney
 //    checkCleanup()
 //  }
 //
 //  it should "determine if the journey exists after cleanup" in {
 //    implicit val conf = new Configuration()
-//    val workload = TpcDsDataGen(confMapTest + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
+//    val workload = mkWorkload(confMapTest + ("clean" -> true))
 //    workload.doesJourneyExist shouldBe false
 //  }
 
-  it should "retrieve the journey's repository" in {
-    val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
-    val journeyDir = confMapTest("journeydir").asInstanceOf[String]
-    val fsPrefix = confMapTest("fsprefix").asInstanceOf[String]
-
-    workload.retrieveRepo()
-
-    val f = new java.io.File(journeyDir)
-    f.exists shouldBe true
-    f.isDirectory shouldBe true
-
-    val dstDir = new Path(s"$fsPrefix$journeyDir")
-    val dstFs = FileSystem.get(dstDir.toUri, conf)
-    dstFs.isDirectory(dstDir) shouldBe true
-  }
-
-  it should "determine if the journey exists after cloning" in {
-    implicit val conf = new Configuration()
-    val workload = TpcDsDataGen(confMapTest).asInstanceOf[TpcDsDataGen]
-    workload.doesJourneyExist shouldBe true
-  }
-
-  it should "createDatabase based on the journey" in {
-    implicit val spark = SparkSessionProvider.spark
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
-    workload.createDatabase
-    val dbs = spark.sql("show databases").collect
-    dbs.find(_.getAs[String]("databaseName") == "testdb") shouldBe defined
-  }
-
-  it should "createTables based on the journey" in {
-    implicit val spark = SparkSessionProvider.spark
-    val workload = TpcDsDataGen(confMapTest - "tpcds-kit-dir").asInstanceOf[TpcDsDataGen]
-    val tableName = TpcDsBase.tables.head
-    workload.createTable(tableName)
-    val tables = spark.sql("show tables").collect
-    tables.find(_.getAs[String]("tableName") == tableName) shouldBe defined
-  }
+//  it should "retrieve the journey's repository" in {
+//    val workload = mkWorkload
+//    val journeyDir = confMapTest("journeydir").asInstanceOf[String]
+//    val fsPrefix = confMapTest("fsprefix").asInstanceOf[String]
+//
+//    workload.retrieveRepo()
+//
+//    val f = new java.io.File(journeyDir)
+//    f.exists shouldBe true
+//    f.isDirectory shouldBe true
+//
+//    val dstDir = new Path(s"$fsPrefix$journeyDir")
+//    val dstFs = FileSystem.get(dstDir.toUri, conf)
+//    dstFs.isDirectory(dstDir) shouldBe true
+//  }
+//
+//  it should "determine if the journey exists after cloning" in {
+//    implicit val conf = new Configuration()
+//    val workload = mkWorkload
+//    workload.doesJourneyExist shouldBe true
+//  }
+//
+//  it should "createDatabase based on the journey" in {
+//    implicit val spark = SparkSessionProvider.spark
+//    val workload = mkWorkload
+//    workload.createDatabase
+//    val dbs = spark.sql("show databases").collect
+//    dbs.find(_.getAs[String]("databaseName") == "testdb") shouldBe defined
+//  }
+//
+//  it should "createTables based on the journey" in {
+//    implicit val spark = SparkSessionProvider.spark
+//    val workload = mkWorkload
+//    val tableName = com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables.head
+//    workload.createTable(tableName)
+//    val tables = spark.sql("show tables").collect
+//    tables.find(_.getAs[String]("tableName") == tableName) shouldBe defined
+//  }
 
   private def cleanupOutput(workload: TpcDsDataGen): Unit = {
     val hdfsDataDir = workload.getOutputDataDir
@@ -420,13 +424,13 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   }
 
   private def genDataTest(tableName: String, numPartitions: Option[Int]): Unit = {
-    val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir)).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload
 
     cleanupOutput(workload)
 
     implicit val spark = SparkSessionProvider.spark
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(numPartitions.getOrElse(1)))
-    val (dur, results) = time(workload.genDataWithTiming(kitDir, Seq(TableOptions(tableName, numPartitions, Seq.empty))))
+    val (dur, results) = time(workload.genDataWithTiming(Seq(TableOptions(tableName, numPartitions, Seq.empty))))
     results should have size 1
     results.head._1 shouldBe tableName
     results.head._2 should be > 0L
@@ -468,22 +472,22 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     genDataTest("inventory", Some(10)) // scalastyle:ignore
   }
 
+  it should "genData using the TPC-DS kit for promotion" in {
+    genDataTest("promotion", None)
+  }
+
   it should "cleanup output" in {
-    val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir)).asInstanceOf[TpcDsDataGen]
-    cleanupOutput(workload)
+    cleanupOutput(mkWorkload)
   }
 
   it should "doWorkload" in {
-    val workload = TpcDsDataGen(confMapTest + ("tpcds-kit-dir" -> kitDir) + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
+    val workload = mkWorkload(confMapTest + ("clean" -> true))
     val spark = SparkSessionProvider.spark
     val df = workload.doWorkload(None, spark)
     df.collect.foreach(println)
   }
 
-  it should "cleanup the journey from the local filesystem and HDFS" in {
-    implicit val conf = new Configuration()
-    val workload = TpcDsDataGen(confMapTest + ("clean" -> true)).asInstanceOf[TpcDsDataGen]
-    workload.cleanupJourney
-    checkCleanup()
+  it should "cleanup output when done" in {
+    cleanupOutput(mkWorkload)
   }
 }

@@ -43,7 +43,7 @@ object TableRowCounts {
     TableRowCounts("income_band", 16, 20L, 20L, 20L, 20L, 20L, 20L),
     TableRowCounts("inventory", 16, 11745000L, 783000000L, 1033560000L, 1311525000L, 1627857000L, 1965337830L),
     TableRowCounts("item", 281, 18000L, 300000L, 360000L, 402000L, 462000L, 502000L),
-    TableRowCounts("promotions", 124, 300L, 1500L, 1800L, 2000L, 2300L, 2500L),
+    TableRowCounts("promotion", 124, 300L, 1500L, 1800L, 2000L, 2300L, 2500L),
     TableRowCounts("reason", 38, 35L, 65L, 67L, 70L, 72L, 75L),
     TableRowCounts("ship_mode", 56, 20L, 20L, 20L, 20L, 20L, 20L),
     TableRowCounts("store", 263, 12L, 1002L, 1350L, 1500L, 1704L, 1902L),

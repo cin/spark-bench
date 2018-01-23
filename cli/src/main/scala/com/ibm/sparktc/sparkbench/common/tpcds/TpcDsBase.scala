@@ -18,6 +18,7 @@
 package com.ibm.sparktc.sparkbench.common.tpcds
 
 import scala.util.Try
+import scala.util.matching.Regex
 
 object TpcDsBase {
   // TPC-DS table names.
@@ -29,12 +30,13 @@ object TpcDsBase {
     "web_sales", "catalog_returns", "customer_address",
     "household_demographics", "item", "ship_mode", "store_sales",
     "web_page", "web_site")
+
+  val PartitionedRgx: Regex = "([a-z_]+)_[0-9]+_[0-9]+.dat".r
+  val NonPartitionedRgx: Regex = "([a-z_]+).dat".r
 }
 
 abstract class TpcDsBase(journeyDir: String, dbName: String) extends Serializable {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
-
-  protected val tables: Array[String] = TpcDsBase.tables
 
   protected val tpcdsRootDir: String = journeyDir
   protected val tpcdsDdlDir = s"$tpcdsRootDir/src/ddl/individual"
