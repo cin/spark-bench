@@ -17,9 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
-import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
+import org.scalatest.{FlatSpec, Matchers}
 
-class TpcDsTableGenResultsTest extends FlatSpec with Matchers with BeforeAndAfterEach {
+class TpcDsTableGenResultsTest extends FlatSpec with Matchers {
   "TpcDsTableGenResults" should "be created properly from a tuple" in {
     val res = TpcDsTableGenResults(("foo", false))
     res.table shouldBe "foo"

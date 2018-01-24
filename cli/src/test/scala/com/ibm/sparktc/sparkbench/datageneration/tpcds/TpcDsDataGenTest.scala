@@ -24,11 +24,11 @@ import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
-import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
+import org.scalatest.{FlatSpec, Matchers}
 
 import scala.concurrent.ExecutionContext
 
-class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
+class TpcDsDataGenTest extends FlatSpec with Matchers {
   private val tableOptions = """[
     {
       "name": "call_center"

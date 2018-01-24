@@ -18,9 +18,9 @@
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
-import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
+import org.scalatest.{FlatSpec, Matchers}
 
-class TpcDsQueryGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
+class TpcDsQueryGenTest extends FlatSpec with Matchers {
 
   // TODO: is there a less brittle way to do this?
   private val cwd = new java.io.File(".").getCanonicalPath

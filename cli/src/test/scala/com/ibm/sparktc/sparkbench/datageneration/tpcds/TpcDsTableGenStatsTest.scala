@@ -18,11 +18,11 @@
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import scala.concurrent.Future
-import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
+import org.scalatest.{FlatSpec, Matchers}
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import scala.concurrent.ExecutionContext.Implicits.global
 
-class TpcDsTableGenStatsTest extends FlatSpec with Matchers with BeforeAndAfterEach {
+class TpcDsTableGenStatsTest extends FlatSpec with Matchers {
   private implicit val spark = SparkSessionProvider.spark
 
   private val results = Seq(

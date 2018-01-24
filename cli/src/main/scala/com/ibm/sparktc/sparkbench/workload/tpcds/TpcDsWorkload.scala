@@ -17,7 +17,7 @@
 
 package com.ibm.sparktc.sparkbench.workload.tpcds
 
-import scala.util.{Try, Success, Failure}
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.QueryStreamRgx
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -40,62 +40,66 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 	at com.ibm.sparktc.sparkbench.utils.SparkFuncs$$anonfun$addConfToResults$1.apply(SparkFuncs.scala:81)
  */
 
+case class TpcDsQueryStats(queryName: String, duration: Long, resultLengh: Int)
+case class TpcDsQueryInfo(queryNum: Int, streamNum: Int, queryTemplate: String, queries: Seq[String])
+
+trait QueryState
+case object QueryStateNone extends QueryState
+case object QueryStateScanning extends QueryState
+
 object TpcDsWorkload extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
   val name = "tpcds"
 
-  private def mkQueries(q: Option[String]): Seq[Int] = q match {
-    case Some(qstr) if qstr.nonEmpty => qstr.split(",").flatMap { v =>
-      Try(v.toInt) match {
-        case Success(u) => Some(u)
-        case Failure(e) => log.error(s"Failed to parse $v", e); None
-      }
-    }
-    case _ => 1 until 100
-  }
-
   override def apply(m: Map[String, Any]): Workload = {
     TpcDsWorkload(
       optionallyGet(m, "input"),
       optionallyGet(m, "output"),
-      getOrThrowT[String](m, "queriesdir"),
-      getOrDefault[String](m, "dbname", "tpcds"),
-      getOrDefault[String](m, "fsprefix", "hdfs:///"),
-      optionallyGet(m, "queries")
+      getOrThrowT[String](m, "querystream"),
+      getOrDefault[String](m, "dbname", "tpcds")
     )
   }
 }
 
-case class TpcDsQueryStats(queryName: String, duration: Long, resultLengh: Int)
-
 case class TpcDsWorkload(
     input: Option[String],
     output: Option[String],
-    queriesDir: String,
-    dbName: String,
-    fsPrefix: String,
-    queries: Option[String]
+    queryStream: String,
+    dbName: String
   ) extends Workload {
   import TpcDsWorkload._
 
-  private def runQuery(queryNum: Int)(implicit spark: SparkSession): Seq[TpcDsQueryStats] = {
-    val queryName = s"$fsPrefix$queriesDir/query${f"$queryNum%02d"}.sql"
-    val (_, content) = spark.sparkContext.wholeTextFiles(queryName).collect()(0)
-    val queries = content.split("\n").filterNot(_.startsWith("--")).mkString(" ").split(";")
-    if (queries.isEmpty) throw new Exception(s"No queries to run for $queryName - ")
-    log.error(s"Running TPC-DS Query $queryName")
+  private[tpcds] def extractQueries: Seq[TpcDsQueryInfo] = {
+    val is = getClass.getResourceAsStream(queryStream)
+    val initialState = (QueryStateNone: QueryState, Option.empty[TpcDsQueryInfo], Seq.empty[TpcDsQueryInfo])
+    val res = scala.io.Source.fromInputStream(is).getLines.foldLeft(initialState) {
+      case ((state, _, queryInfo), line) if state == QueryStateNone && line.startsWith("-- start query")=>
+        val QueryStreamRgx(queryNum, streamNum, queryTemplate) = line
+        (QueryStateScanning, Some(TpcDsQueryInfo(queryNum.toInt, streamNum.toInt, queryTemplate, Seq.empty)), queryInfo)
+      case ((state, qs, queryInfo), line) if state == QueryStateScanning && line.startsWith("-- end query") =>
+        (QueryStateNone, None, queryInfo ++ qs)
+      case ((state, qs, queryInfo), line) if state == QueryStateScanning =>
+        (QueryStateScanning, qs.map { q => q.copy(queries = q.queries :+ line) }, queryInfo)
+    }
+    res._3
+  }
+
+  private def runQuery(queryInfo: TpcDsQueryInfo)(implicit spark: SparkSession): Seq[TpcDsQueryStats] = {
+    val queries = queryInfo.queries.mkString(" ").split(";")
+    if (queries.isEmpty) throw new Exception(s"No queries to run for $queryStream")
+    log.error(s"Running TPC-DS Query ${queryInfo.queryTemplate}")
 
     queries.map { query =>
       val (dur, result) = time(spark.sql(query).collect)
-      TpcDsQueryStats(queryName, dur, result.length)
+      TpcDsQueryStats(queryInfo.queryTemplate, dur, result.length)
     }
   }
 
   override def doWorkload(df: Option[DataFrame], spark: SparkSession): DataFrame = {
     implicit val explicitlyDeclaredImplicitSpark: SparkSession = spark
     spark.sql(s"USE $dbName")
-    val queryStats = mkQueries(queries).map { queryNum => (queryNum, runQuery(queryNum)) }
+    val queryStats = extractQueries.map { queryInfo => (queryInfo.queryNum, runQuery(queryInfo)) }
     spark.createDataFrame(spark.sparkContext.parallelize(queryStats))
   }
 }

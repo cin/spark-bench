@@ -17,9 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
-import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
+import org.scalatest.{FlatSpec, Matchers}
 
-class TableRowCountsTest extends FlatSpec with Matchers with BeforeAndAfterEach {
+class TableRowCountsTest extends FlatSpec with Matchers {
   private val tableName = "store_sales"
   private val exp = TableRowCounts(
     "store_sales", 164, 2880404L, 2879987999L, 8639936081L, 28799983563L, 86399341874L, 287997818084L) // scalastyle:ignore

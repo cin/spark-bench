@@ -17,9 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
-import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
+import org.scalatest.{FlatSpec, Matchers}
 
-class TableOptionsTest extends FlatSpec with Matchers with BeforeAndAfterEach {
+class TableOptionsTest extends FlatSpec with Matchers {
 
   private def test(actual: Option[TableOptions], expected: TableOptions): Unit = {
     actual shouldBe defined

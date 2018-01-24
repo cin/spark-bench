@@ -20,8 +20,6 @@ package com.ibm.sparktc.sparkbench.common.tpcds
 import scala.util.matching.Regex
 
 object TpcDsBase {
-  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
-
   val tables = Array(
     "call_center",
     "catalog_page",
@@ -51,4 +49,6 @@ object TpcDsBase {
 
   val PartitionedRgx: Regex = "([a-z_]+)_[0-9]+_[0-9]+.dat".r
   val NonPartitionedRgx: Regex = "([a-z_]+).dat".r
+
+  val QueryStreamRgx: Regex = """^-- start query ([0-9]+) in stream ([0-9]+) using template (query[0-9]+\.tpl)$""".r
 }
