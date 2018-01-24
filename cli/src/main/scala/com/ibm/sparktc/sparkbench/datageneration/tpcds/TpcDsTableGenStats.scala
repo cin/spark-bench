@@ -20,10 +20,10 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 import scala.concurrent.Future
 import org.apache.spark.rdd.RDD
 
-case class TpcDsTableGenStats(table: String, duration: Long)
+case class TpcDsTableGenStats(table: String, duration: Long, rowCount: Long)
 
 object TpcDsTableGenStats {
   def apply[T](r: (String, Long, Future[RDD[Seq[TpcDsTableGenResults]]])): TpcDsTableGenStats = {
-    new TpcDsTableGenStats(r._1, r._2)
+    new TpcDsTableGenStats(r._1, r._2, 0L)
   }
 }

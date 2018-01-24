@@ -28,13 +28,14 @@ import java.util.concurrent.Executors.newFixedThreadPool
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future, ExecutionContextExecutorService => ExSvc}
 import scala.io.Source.fromInputStream
-import scala.sys.process._
 import scala.util.Try
+
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, FileUtil, Path}
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
+
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{NonPartitionedRgx, PartitionedRgx, tables}
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
@@ -72,8 +73,7 @@ case class TpcDsDataGen(
     tpcDsKitDir: String,
     tpcDsScale: Int,
     tpcDsRngSeed: Int
-  ) extends TpcDsBase("", dbName)
-    with Workload {
+  ) extends Workload {
   import TpcDsDataGen._
 
   private[tpcds] def syncCopy(file: File, outputDir: String)(implicit conf: Configuration) = {
@@ -175,21 +175,6 @@ case class TpcDsDataGen(
     }
   }
 
-  // runCmd runs the dsdgen command and checks the stderr to see if an error occurred
-  // normally the return value of the command would indicate a failure but that's not how tpc-ds rolls
-  private[tpcds] def runCmd(cmd: Seq[String]): Boolean = Try {
-    log.debug(s"runCmd: ${cmd.mkString(" ")}")
-    val (stdout, stderr) = (new StringBuilder, new StringBuilder)
-    cmd ! ProcessLogger(stdout.append(_), stderr.append(_)) match {
-      case ret if ret == 0 && !stderr.toString.contains("ERROR") =>
-        log.debug(s"stdout: $stdout\nstderr: $stderr")
-      case ret =>
-        val msg = s"dsdgen failed: $ret\n\nstderr\n${stderr.toString}"
-        log.error(msg)
-        throw new RuntimeException(msg)
-    }
-  }.isSuccess
-
   private[tpcds] def fixupOutputDirPath: String = output match {
     case Some(d) if d.nonEmpty && d.endsWith("/") => d
     case Some(d) if d.nonEmpty => d + "/"
@@ -197,7 +182,7 @@ case class TpcDsDataGen(
     case _ => ""
   }
 
-  private[tpcds] def validateRowCount(table: String)(implicit spark: SparkSession): Unit = {
+  private[tpcds] def validateRowCount(table: String)(implicit spark: SparkSession): (String, Long) = {
     val expectedRowCount = TableRowCounts.getCount(table, tpcDsScale)
     val res = spark.sql(s"select count(*) from $table").collect
     if (res.isEmpty) throw new RuntimeException(s"Could not query $table's row count")
@@ -206,10 +191,11 @@ case class TpcDsDataGen(
       if (actualRowCount != expectedRowCount) {
         log.error(s"$table's row counts did not match expected. actual: $actualRowCount, expected: $expectedRowCount")
       }
+      (table, actualRowCount)
     }
   }
 
-  private[tpcds] def validateRowCounts(implicit spark: SparkSession): Unit = tables.foreach(validateRowCount)
+  private[tpcds] def validateRowCounts(implicit spark: SparkSession): Seq[(String, Long)] = tables.map(validateRowCount)
 
   private[tpcds] def validateResults(results: Seq[TpcDsTableGenResults])(implicit spark: SparkSession): Unit = {
     results.foreach { i => log.error(i.toString) }
@@ -257,18 +243,26 @@ case class TpcDsDataGen(
     seqOfRdds.map(TpcDsTableGenStats(_))
   }
 
+  private def addRowCountsToStats(stats: Seq[TpcDsTableGenStats], rowCounts: Seq[(String, Long)]) = stats.map { r =>
+    rowCounts.find(_._1 == r.table) match {
+      case Some(rc) => r.copy(rowCount = rc._2)
+      case _ => r
+    }
+  }
+
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
     import spark.sqlContext.implicits._
     implicit val explicitlyDeclaredImplicitSpark = spark
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(tableOptions.length))
 
-    val res = try genData
+    val stats = try genData
     catch { case e: Throwable => log.error("Failed to generate data for TPC-DS", e); Seq.empty[TpcDsTableGenStats] }
     finally ec.shutdown()
 
     createDatabase
-    forEachTable(tables, createTable)
-    validateRowCounts
-    spark.sparkContext.parallelize(res).toDF
+    tables.foreach(createTable)
+    val rowCounts = validateRowCounts
+    val statsWithRowCounts = addRowCountsToStats(stats, rowCounts)
+    spark.sparkContext.parallelize(statsWithRowCounts).toDF
   }
 }

@@ -19,6 +19,7 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import java.util.concurrent.Executors.newFixedThreadPool
 
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import org.apache.hadoop.conf.Configuration
@@ -28,7 +29,6 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
 import scala.concurrent.ExecutionContext
 
 class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
-
   private val tableOptions = """[
     {
       "name": "call_center"
@@ -109,7 +109,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
 
   // TODO: is there a less brittle way to do this?
   private val cwd = new java.io.File(".").getCanonicalPath
-  private val kitDir= s"$cwd/cli/src/test/resources/tpcds/${
+  private val kitDir = s"$cwd/cli/src/test/resources/tpcds/${
     sys.props("os.name") match {
       case "Linux" => "linux"
       case _ => "osx"
@@ -238,16 +238,6 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
       "-parallel", "8"
     )
     cmd shouldBe expected
-  }
-
-  it should "runCmd successfully" in {
-    val workload = mkWorkload
-    workload.runCmd(Seq("ls", "-al")) shouldBe true
-  }
-
-  it should "runCmd and fail appropriately" in {
-    val workload = mkWorkload
-    workload.runCmd(Seq("thisisnota", "-command")) shouldBe false
   }
 
   it should "fixupOutputDirPath without a trailing slash" in {
@@ -483,8 +473,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   it should "doWorkload" in {
     val workload = mkWorkload(confMapTest + ("clean" -> true))
     val spark = SparkSessionProvider.spark
-    val df = workload.doWorkload(None, spark)
-    df.collect.foreach(println)
+    workload.doWorkload(None, spark).show(tables.length)
   }
 
   it should "cleanup output when done" in {

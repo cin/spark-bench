@@ -17,44 +17,38 @@
 
 package com.ibm.sparktc.sparkbench.common.tpcds
 
-import scala.util.Try
 import scala.util.matching.Regex
 
 object TpcDsBase {
-  // TPC-DS table names.
-  val tables = Array("call_center", "catalog_sales",
-    "customer_demographics", "income_band",
-    "promotion", "store", "time_dim", "web_returns",
-    "catalog_page", "customer", "date_dim",
-    "inventory", "reason", "store_returns", "warehouse",
-    "web_sales", "catalog_returns", "customer_address",
-    "household_demographics", "item", "ship_mode", "store_sales",
-    "web_page", "web_site")
+  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
+
+  val tables = Array(
+    "call_center",
+    "catalog_page",
+    "catalog_returns",
+    "catalog_sales",
+    "customer",
+    "customer_address",
+    "customer_demographics",
+    "date_dim",
+    "household_demographics",
+    "income_band",
+    "inventory",
+    "item",
+    "promotion",
+    "reason",
+    "ship_mode",
+    "store",
+    "store_returns",
+    "store_sales",
+    "time_dim",
+    "warehouse",
+    "web_page",
+    "web_returns",
+    "web_sales",
+    "web_site"
+  )
 
   val PartitionedRgx: Regex = "([a-z_]+)_[0-9]+_[0-9]+.dat".r
   val NonPartitionedRgx: Regex = "([a-z_]+).dat".r
-}
-
-abstract class TpcDsBase(journeyDir: String, dbName: String) extends Serializable {
-  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
-
-  protected val tpcdsRootDir: String = journeyDir
-  protected val tpcdsDdlDir = s"$tpcdsRootDir/src/ddl/individual"
-  protected val tpcdsGenDataDir = s"$tpcdsRootDir/src/data"
-  protected val tpcdsQueriesDir = s"$tpcdsRootDir/src/queries"
-  protected val tpcdsDatabaseName: String = dbName
-
-  log.error(s"TPCDS root directory is at $tpcdsRootDir")
-  log.error(s"TPCDS ddl scripts directory is at $tpcdsDdlDir")
-  log.error(s"TPCDS data directory is at $tpcdsGenDataDir")
-  log.error(s"TPCDS queries directory is at $tpcdsQueriesDir")
-
-  // run function for each table in tables array
-  protected def forEachTable(tables: Array[String], fn: (String) => Unit): Unit = {
-    for (table <- tables) Try(fn(table)).recover {
-      case e: Throwable =>
-        log.error(s"fn failed on $table", e)
-        throw e
-    }
-  }
 }

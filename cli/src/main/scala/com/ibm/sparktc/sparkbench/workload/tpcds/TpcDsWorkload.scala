@@ -18,7 +18,6 @@
 package com.ibm.sparktc.sparkbench.workload.tpcds
 
 import scala.util.{Try, Success, Failure}
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -60,7 +59,7 @@ object TpcDsWorkload extends WorkloadDefaults {
     TpcDsWorkload(
       optionallyGet(m, "input"),
       optionallyGet(m, "output"),
-      getOrDefault[String](m, "journeydir", "tpcds-journey"),
+      getOrThrowT[String](m, "queriesdir"),
       getOrDefault[String](m, "dbname", "tpcds"),
       getOrDefault[String](m, "fsprefix", "hdfs:///"),
       optionallyGet(m, "queries")
@@ -73,16 +72,15 @@ case class TpcDsQueryStats(queryName: String, duration: Long, resultLengh: Int)
 case class TpcDsWorkload(
     input: Option[String],
     output: Option[String],
-    journeyDir: String,
+    queriesDir: String,
     dbName: String,
     fsPrefix: String,
     queries: Option[String]
-  ) extends TpcDsBase(journeyDir, dbName)
-    with Workload {
+  ) extends Workload {
   import TpcDsWorkload._
 
   private def runQuery(queryNum: Int)(implicit spark: SparkSession): Seq[TpcDsQueryStats] = {
-    val queryName = s"$fsPrefix$tpcdsQueriesDir/query${f"$queryNum%02d"}.sql"
+    val queryName = s"$fsPrefix$queriesDir/query${f"$queryNum%02d"}.sql"
     val (_, content) = spark.sparkContext.wholeTextFiles(queryName).collect()(0)
     val queries = content.split("\n").filterNot(_.startsWith("--")).mkString(" ").split(";")
     if (queries.isEmpty) throw new Exception(s"No queries to run for $queryName - ")
@@ -96,7 +94,7 @@ case class TpcDsWorkload(
 
   override def doWorkload(df: Option[DataFrame], spark: SparkSession): DataFrame = {
     implicit val explicitlyDeclaredImplicitSpark: SparkSession = spark
-    spark.sql(s"USE $tpcdsDatabaseName")
+    spark.sql(s"USE $dbName")
     val queryStats = mkQueries(queries).map { queryNum => (queryNum, runQuery(queryNum)) }
     spark.createDataFrame(spark.sparkContext.parallelize(queryStats))
   }
