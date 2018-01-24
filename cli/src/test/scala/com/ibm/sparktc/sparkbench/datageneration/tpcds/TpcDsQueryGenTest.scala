@@ -31,8 +31,11 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     }
   }"
 
+  private val outputPath = java.nio.file.Files.createTempDirectory("qgen")
+  private val outputDir = outputPath.toFile.getAbsolutePath
+
   private val confMapTest: Map[String, Any] = Map(
-    "output" -> "test-output",
+    "output" -> outputDir,
     "tpcds-kit-dir" -> kitDir,
     "tpcds-scale" -> 1,
     "tpcds-streams" -> 1,
@@ -46,7 +49,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   "TpcDsQueryGen" should "initialize properly" in {
     val workload = mkWorkload
     workload.input should not be defined
-    workload.output shouldBe Some("test-output")
+    workload.output shouldBe Some(outputDir)
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsScale shouldBe 1
@@ -59,7 +62,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
   it should "initialize properly given counts" in {
     val workload = mkWorkload(confMapTest + ("tpcds-count" -> 5))
     workload.input should not be defined
-    workload.output shouldBe Some("test-output")
+    workload.output shouldBe Some(outputDir)
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsScale shouldBe 1
@@ -73,14 +76,14 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     val workload = mkWorkload
     val cmd = workload.mkCmd
     val expected = Seq(
-      s"$kitDir/tools/dsqgen",
+      s"./dsqgen",
       "-sc", "1",
-      "-distributions", s"$kitDir/tools/tpcds.idx",
+      "-distributions", s"tpcds.idx",
       "-dialect", "ansi",
       "-rngseed", "8",
-      "-dir", s"$kitDir/query_templates/",
-      "-input", s"$kitDir/query_templates/templates.lst",
-      "-output_dir", "test-output",
+      "-dir", s"../query_templates",
+      "-input", s"../query_templates/templates.lst",
+      "-output_dir", outputDir,
       "-streams", "1"
     )
     cmd shouldBe expected
@@ -90,14 +93,14 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     val workload = mkWorkload(confMapTest + ("tpcds-count" -> 5))
     val cmd = workload.mkCmd
     val expected = Seq(
-      s"$kitDir/tools/dsqgen",
+      s"./dsqgen",
       "-sc", "1",
-      "-distributions", s"$kitDir/tools/tpcds.idx",
+      "-distributions", s"tpcds.idx",
       "-dialect", "ansi",
       "-rngseed", "8",
-      "-dir", s"$kitDir/query_templates/",
-      "-input", s"$kitDir/query_templates/templates.lst",
-      "-output_dir", "test-output",
+      "-dir", s"../query_templates",
+      "-input", s"../query_templates/templates.lst",
+      "-output_dir", outputDir,
       "-streams", "1",
       "-count", "5"
     )
@@ -111,5 +114,23 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers with BeforeAndAfterEach {
     val df = workload.doWorkload(None, spark)
     df.collect().head.getAs[Boolean](0) shouldBe true
     df.show()
+    val f = new java.io.File(outputDir)
+    f.listFiles.flatMap {
+      case ff if ff.getName == "query_0.sql" => Some(ff.getName)
+      case _ => None
+    } should have size 1
+  }
+
+  it should "doWorkload with multiple streams" in {
+    val workload = mkWorkload(confMapTest + ("tpcds-streams" -> 4))
+    val spark = SparkSessionProvider.spark
+    val df = workload.doWorkload(None, spark)
+    df.collect().head.getAs[Boolean](0) shouldBe true
+    df.show()
+    val f = new java.io.File(outputDir)
+    f.listFiles.flatMap {
+      case ff if ff.getName.startsWith("query_") => Some(ff.getName)
+      case _ => None
+    } should have size 4
   }
 }

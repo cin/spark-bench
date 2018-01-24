@@ -59,13 +59,13 @@ case class TpcDsQueryGen(
 
   private[tpcds] def mkCmd: Seq[String] = {
     val cmd = Seq(
-      s"$tpcDsKitDir/tools/dsqgen",
+      s"./dsqgen",
       "-sc", s"$tpcDsScale",
-      "-distributions", s"$tpcDsKitDir/tools/tpcds.idx",
+      "-distributions", s"tpcds.idx",
       "-dialect", tpcDsDialect,
       "-rngseed", s"$tpcDsRngSeed",
-      "-dir", s"$tpcDsKitDir/query_templates/",
-      "-input", s"$tpcDsKitDir/query_templates/templates.lst",
+      "-dir", s"../query_templates",
+      "-input", s"../query_templates/templates.lst",
       "-output_dir", output.get,
       "-streams", s"$tpcDsStreams"
     )
@@ -77,7 +77,7 @@ case class TpcDsQueryGen(
     val f = new File(output.get)
     if (!f.exists) f.mkdirs
     log.debug(s"Outputting data to ${f.getAbsolutePath}")
-    val (dur, res) = time(runCmd(mkCmd))
+    val (dur, res) = time(runCmd(mkCmd, Some(s"$tpcDsKitDir/tools")))
     spark.sparkContext.parallelize(Seq(TpcDsQueryGenStats(res, dur))).toDF
   }
 }

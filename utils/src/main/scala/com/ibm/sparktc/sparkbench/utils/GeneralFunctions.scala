@@ -34,7 +34,7 @@ object GeneralFunctions {
 
   private[utils] def tryWithDefault[A](a: Any, default: A, func: Any => A): A = Try(func(a)) match {
     case Success(b) => b
-    case Failure(e) => default
+    case Failure(_) => default
   }
 
   def getOrDefaultOpt[A](opt: Option[Any], default: A, func: Any => A = defaultFn[A](_: Any)): A = {
@@ -90,18 +90,17 @@ object GeneralFunctions {
     sw.toString
   }
 
-  // TODO: what is this???
-//  def randomLong(max: Long): Long = {
-//    val start = 0L
-//    (start + (Random.nextDouble() * (max - start) + start)).toLong
-//  }
+  private[utils] def mkProcess(cmd: Seq[String], cwd: Option[String]): ProcessBuilder = cwd match {
+    case Some(d) => Process(cmd, new java.io.File(d))
+    case _ => Process(cmd)
+  }
 
   // runCmd runs the command and checks the stderr to see if an error occurred
   // normally the return value of the command would indicate a failure but that's not how tpc-ds rolls
-  def runCmd(cmd: Seq[String]): Boolean = Try {
+  def runCmd(cmd: Seq[String], cwd: Option[String] = None): Boolean = Try {
     log.debug(s"runCmd: ${cmd.mkString(" ")}")
     val (stdout, stderr) = (new StringBuilder, new StringBuilder)
-    cmd ! ProcessLogger(stdout.append(_), stderr.append(_)) match {
+    mkProcess(cmd, cwd) ! ProcessLogger(stdout.append(_), stderr.append(_)) match {
       case ret if ret == 0 && !stderr.toString.contains("ERROR") =>
         log.debug(s"stdout: $stdout\nstderr: $stderr")
       case ret =>
@@ -110,5 +109,4 @@ object GeneralFunctions {
         throw new RuntimeException(msg)
     }
   }.isSuccess
-
 }

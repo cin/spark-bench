@@ -112,11 +112,29 @@ class GeneralFunctionsTest extends FlatSpec with Matchers with BeforeAndAfterEac
     stringifyStackTrace(e) should startWith ("com.ibm.sparktc.sparkbench.utils.SparkBenchException: this is an exception")
   }
 
+  it should "mkProcess correctly" in {
+    val pb = mkProcess(Seq("ls", "-al"), None)
+    pb.! shouldBe 0
+  }
+
+  it should "mkProcess but fail on invalid commands" in {
+    val pb = mkProcess(Seq("thisisnotacommand", "-al"), None)
+    a[java.io.IOException] should be thrownBy pb.!
+  }
+
   it should "runCmd successfully" in {
     runCmd(Seq("ls", "-al")) shouldBe true
   }
 
   it should "runCmd and fail appropriately" in {
     runCmd(Seq("thisisnota", "-command")) shouldBe false
+  }
+
+  it should "runCmd work with different current working directory" in {
+    runCmd(Seq("ls", "-al", "tpcds-example.conf"), Some("examples")) shouldBe true
+  }
+
+  it should "runCmd fail appropriately with different current working directory" in {
+    runCmd(Seq("ls", "-al", "tpcds-example.conf"), Some("notadir")) shouldBe false
   }
 }
