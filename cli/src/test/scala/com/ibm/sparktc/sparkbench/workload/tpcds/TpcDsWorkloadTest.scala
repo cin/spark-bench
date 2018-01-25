@@ -17,6 +17,7 @@
 
 package com.ibm.sparktc.sparkbench.workload.tpcds
 
+import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import org.scalatest.{FlatSpec, Matchers}
 
 class TpcDsWorkloadTest extends FlatSpec with Matchers {
@@ -30,7 +31,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
   private def mkWorkload(confMap: Map[String, Any]): TpcDsWorkload =
     TpcDsWorkload(confMap).asInstanceOf[TpcDsWorkload]
 
-  val q1 =
+  private val q1_ansi =
     """select top 100 count(*)
       |from store_sales
       |    ,household_demographics
@@ -45,7 +46,22 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
       |order by count(*)
       |;""".stripMargin
 
-  val q29 =
+  private val q1 =
+    """select  count(*)
+      |from store_sales
+      |    ,household_demographics
+      |    ,time_dim, store
+      |where ss_sold_time_sk = time_dim.t_time_sk
+      |    and ss_hdemo_sk = household_demographics.hd_demo_sk
+      |    and ss_store_sk = s_store_sk
+      |    and time_dim.t_hour = 15
+      |    and time_dim.t_minute >= 30
+      |    and household_demographics.hd_dep_count = 6
+      |    and store.s_store_name = 'ese'
+      |order by count(*)
+      | limit 100;""".stripMargin
+
+  private val q29 =
     """with ss as (
       | select
       |          i_item_id,sum(ss_ext_sales_price) total_sales
@@ -59,13 +75,13 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
       |  i_item_id
       |from
       | item
-      |where i_category in ('Children'))
+      |where i_category in ('Men'))
       | and     ss_item_sk              = i_item_sk
       | and     ss_sold_date_sk         = d_date_sk
       | and     d_year                  = 2001
       | and     d_moy                   = 8
       | and     ss_addr_sk              = ca_address_sk
-      | and     ca_gmt_offset           = -7
+      | and     ca_gmt_offset           = -5
       | group by i_item_id),
       | cs as (
       | select
@@ -80,13 +96,13 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
       |  i_item_id
       |from
       | item
-      |where i_category in ('Children'))
+      |where i_category in ('Men'))
       | and     cs_item_sk              = i_item_sk
       | and     cs_sold_date_sk         = d_date_sk
       | and     d_year                  = 2001
       | and     d_moy                   = 8
       | and     cs_bill_addr_sk         = ca_address_sk
-      | and     ca_gmt_offset           = -7
+      | and     ca_gmt_offset           = -5
       | group by i_item_id),
       | ws as (
       | select
@@ -101,15 +117,15 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
       |  i_item_id
       |from
       | item
-      |where i_category in ('Children'))
+      |where i_category in ('Men'))
       | and     ws_item_sk              = i_item_sk
       | and     ws_sold_date_sk         = d_date_sk
       | and     d_year                  = 2001
       | and     d_moy                   = 8
       | and     ws_bill_addr_sk         = ca_address_sk
-      | and     ca_gmt_offset           = -7
+      | and     ca_gmt_offset           = -5
       | group by i_item_id)
-      |  select top 100
+      |  select
       |  i_item_id
       |,sum(total_sales) total_sales
       | from  (select * from ss
@@ -120,7 +136,12 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
       | group by i_item_id
       | order by i_item_id
       |      ,total_sales
-      | ;""".stripMargin
+      |  limit 100;""".stripMargin
+
+  private def fixupQueries(queries: Seq[String]): String =
+    queries.map(_.replaceAll("""(?)\s+$""", "")).dropRight(1).mkString("\n")
+
+  private var q0queries: Seq[TpcDsQueryInfo] = _
 
   "TpcDsWorkload" should "extractQueries from a good file" in {
     val workload = mkWorkload
@@ -128,15 +149,23 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     queries.head.queryNum shouldBe 1
     queries.head.streamNum shouldBe 0
     queries.head.queryTemplate shouldBe "query96.tpl"
-    val q1act = queries.head.queries.map(_.replaceAll("""(?)\s+$""", "")).dropRight(1).mkString("\n")
+    val q1act = fixupQueries(queries.head.queries)
     q1act shouldBe q1
 
     //scalastyle:off magic.number
     queries(28).queryNum shouldBe 29
     queries(28).streamNum shouldBe 0
     queries(28).queryTemplate shouldBe "query60.tpl"
-    val q28act = queries(28).queries.map(_.replaceAll("""(?)\s+$""", "")).dropRight(1).mkString("\n")
+    val q28act = fixupQueries(queries(28).queries)
     q28act shouldBe q29
     //scalastyle:on magic.number
+
+    q0queries = queries
+  }
+
+  it should "runQuery with q0" in {
+    implicit val spark = SparkSessionProvider.spark
+    val workload = mkWorkload
+    val stats = workload.runQuery(q0queries.head)
   }
 }

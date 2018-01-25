@@ -50,5 +50,5 @@ object TpcDsBase {
   val PartitionedRgx: Regex = "([a-z_]+)_[0-9]+_[0-9]+.dat".r
   val NonPartitionedRgx: Regex = "([a-z_]+).dat".r
 
-  val QueryStreamRgx: Regex = """^-- start query ([0-9]+) in stream ([0-9]+) using template (query[0-9]+\.tpl)$""".r
+  val QueryStreamRgx: Regex = """^-- start query ([0-9]+) in stream ([0-9]+) using template (query[0-9]+\.tpl).*$""".r
 }

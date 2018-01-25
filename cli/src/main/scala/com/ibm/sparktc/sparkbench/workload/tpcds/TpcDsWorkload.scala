@@ -85,7 +85,7 @@ case class TpcDsWorkload(
     res._3
   }
 
-  private def runQuery(queryInfo: TpcDsQueryInfo)(implicit spark: SparkSession): Seq[TpcDsQueryStats] = {
+  private[tpcds] def runQuery(queryInfo: TpcDsQueryInfo)(implicit spark: SparkSession): Seq[TpcDsQueryStats] = {
     val queries = queryInfo.queries.mkString(" ").split(";")
     if (queries.isEmpty) throw new Exception(s"No queries to run for $queryStream")
     log.error(s"Running TPC-DS Query ${queryInfo.queryTemplate}")

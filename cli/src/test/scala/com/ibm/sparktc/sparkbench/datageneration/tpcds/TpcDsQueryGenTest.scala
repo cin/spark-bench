@@ -56,7 +56,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
     workload.tpcDsRngSeed shouldBe 8
     workload.tpcDsStreams shouldBe 1
     workload.tpcDsCount shouldBe empty
-    workload.tpcDsDialect shouldBe "ansi"
+    workload.tpcDsDialect shouldBe "spark"
   }
 
   it should "initialize properly given counts" in {
@@ -69,7 +69,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
     workload.tpcDsRngSeed shouldBe 8
     workload.tpcDsStreams shouldBe 1
     workload.tpcDsCount shouldBe Some(5) //scalastyle:ignore
-    workload.tpcDsDialect shouldBe "ansi"
+    workload.tpcDsDialect shouldBe "spark"
   }
 
   it should "mkCmd" in {
@@ -79,7 +79,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
       s"./dsqgen",
       "-sc", "1",
       "-distributions", s"tpcds.idx",
-      "-dialect", "ansi",
+      "-dialect", "spark",
       "-rngseed", "8",
       "-dir", s"../query_templates",
       "-input", s"../query_templates/templates.lst",
@@ -96,7 +96,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
       s"./dsqgen",
       "-sc", "1",
       "-distributions", s"tpcds.idx",
-      "-dialect", "ansi",
+      "-dialect", "spark",
       "-rngseed", "8",
       "-dir", s"../query_templates",
       "-input", s"../query_templates/templates.lst",

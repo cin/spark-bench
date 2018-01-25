@@ -41,7 +41,7 @@ object TpcDsQueryGen extends WorkloadDefaults {
     getOrDefault[Int](m, "tpcds-streams", streamsDefault),
     optionallyGet[Int](m, "tpcds-count"),
     getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault),
-    getOrDefault[String](m, "tpcds-dialect", "ansi")
+    getOrDefault[String](m, "tpcds-dialect", "spark")
   )
 }
 
