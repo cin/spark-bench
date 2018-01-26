@@ -17,7 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
-import java.io.File
+import java.io.{BufferedWriter, File, FileOutputStream, OutputStreamWriter}
+
+import scala.io.Source.fromFile
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.{getOrDefault, getOrThrowT, optionallyGet, runCmd, time}
@@ -32,6 +34,9 @@ object TpcDsQueryGen extends WorkloadDefaults {
   private val rngSeedDefault = 100
   private val scaleDefault = 1
   private val streamsDefault = 1
+
+  private val DazeAddRgx = """^(.*)(cast\s*\('[0-9-]{8,10}'\s+as\s+date\))\s*\+\s*([0-9]+)\s+days(.*)$""".r
+  private val DazeSubRgx = """^(.*)(cast\s*\('[0-9-]{8,10}'\s+as\s+date\))\s*\-\s*([0-9]+)\s+days(.*)$""".r
 
   def apply(m: Map[String, Any]): Workload = TpcDsQueryGen(
     optionallyGet(m, "input"),
@@ -72,12 +77,31 @@ case class TpcDsQueryGen(
     tpcDsCount.foldLeft(cmd) { case (acc, cnt) => acc ++ Seq("-count", s"$cnt") }
   }
 
+  private def fixDaysUsage(f: File): Iterator[String] = fromFile(f).getLines.map {
+    case DazeAddRgx(before, dt, days, after) => s"${before}date_add($dt, $days)$after"
+    case DazeSubRgx(before, dt, days, after) => s"${before}date_sub($dt, $days)$after"
+    case line => line
+  }
+
+  private def mkSparkSqlCompliant(f: File): Unit = f.listFiles.foreach {
+    case ff if ff.getName.endsWith(".sql") =>
+      val lines = fixDaysUsage(ff)
+      val newf = new File(s"${ff.getParent}/${ff.getName}.tmp")
+      val bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(newf)))
+      lines.foreach { l => bw.write(l); bw.newLine() }
+      bw.flush()
+      bw.close()
+      java.nio.file.Files.move(newf.toPath, ff.toPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    case _ => () // do nothing if there are other non-sql files in this directory
+  }
+
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
     import spark.sqlContext.implicits._
     val f = new File(output.get)
     if (!f.exists) f.mkdirs
     log.debug(s"Outputting data to ${f.getAbsolutePath}")
     val (dur, res) = time(runCmd(mkCmd, Some(s"$tpcDsKitDir/tools")))
+    mkSparkSqlCompliant(f)
     spark.sparkContext.parallelize(Seq(TpcDsQueryGenStats(res, dur))).toDF
   }
 }

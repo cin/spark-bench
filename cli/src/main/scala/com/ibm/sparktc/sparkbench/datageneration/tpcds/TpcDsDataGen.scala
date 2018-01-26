@@ -36,7 +36,7 @@ import org.apache.hadoop.fs.{FileSystem, FileUtil, Path}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{NonPartitionedRgx, PartitionedRgx, tables}
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 
@@ -47,6 +47,9 @@ object TpcDsDataGen extends WorkloadDefaults {
   private val maxThreads = 20
   private val rngSeedDefault = 100
   private val scaleDefault = 1
+
+  private val PartitionedRgx = "([a-z_]+)_[0-9]+_[0-9]+.dat".r
+  private val NonPartitionedRgx = "([a-z_]+).dat".r
 
   def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
     optionallyGet(m, "input"),
@@ -218,8 +221,9 @@ case class TpcDsDataGen(
       val f = new File(outputDir)
       if (!f.exists) f.mkdirs
       log.debug(s"Outputting data to ${f.getAbsolutePath}")
-      if (runCmd(mkCmd(topt, chile, outputDir))) copyToHdfs(f)
-      else Seq.empty[TpcDsTableGenResults]
+      if (runCmd(mkCmd(topt, chile, outputDir))) {
+        copyToHdfs(f)
+      } else Seq.empty[TpcDsTableGenResults]
     } catch { case e: Throwable => log.error(s"Failed to handle partition #$chile", e); Seq.empty[TpcDsTableGenResults] }
     finally deleteLocalDir(outputDir)
   }
@@ -260,6 +264,8 @@ case class TpcDsDataGen(
     finally ec.shutdown()
 
     createDatabase
+    // TODO: optimization possible here.
+    // create the tables (convert from CSV to parquet) right after each table has been created
     tables.foreach(createTable)
     val rowCounts = validateRowCounts
     val statsWithRowCounts = addRowCountsToStats(stats, rowCounts)

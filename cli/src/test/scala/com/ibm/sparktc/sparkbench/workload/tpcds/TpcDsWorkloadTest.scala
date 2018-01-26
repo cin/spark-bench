@@ -17,7 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.workload.tpcds
 
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
+import org.apache.spark.sql.SparkSession
 import org.scalatest.{FlatSpec, Matchers}
 
 class TpcDsWorkloadTest extends FlatSpec with Matchers {
@@ -31,6 +33,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
   private def mkWorkload(confMap: Map[String, Any]): TpcDsWorkload =
     TpcDsWorkload(confMap).asInstanceOf[TpcDsWorkload]
 
+  /*
   private val q1_ansi =
     """select top 100 count(*)
       |from store_sales
@@ -45,6 +48,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
       |    and store.s_store_name = 'ese'
       |order by count(*)
       |;""".stripMargin
+  */
 
   private val q1 =
     """select  count(*)
@@ -146,6 +150,8 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
   "TpcDsWorkload" should "extractQueries from a good file" in {
     val workload = mkWorkload
     val queries = workload.extractQueries
+    queries should have size 99
+
     queries.head.queryNum shouldBe 1
     queries.head.streamNum shouldBe 0
     queries.head.queryTemplate shouldBe "query96.tpl"
@@ -160,7 +166,48 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     q28act shouldBe q29
     //scalastyle:on magic.number
 
+    println(queries(5))
     q0queries = queries
+  }
+
+  private def runQueries(
+      qi: (TpcDsQueryInfo, Int))(implicit workload: TpcDsWorkload, spark: SparkSession) = {
+    val (queryInfo, i) = qi
+    val queryStats = try {
+      workload.runQuery(queryInfo)
+    } catch { case e: Throwable =>
+      log.error(s"$i, ${queryInfo.queryNum}, ${queryInfo.queryTemplate}\n${queryInfo.queries.mkString("\n")}", e)
+      Seq(TpcDsQueryStats(queryInfo.queryTemplate, 0, 0))
+    }
+    (queryInfo.queryNum, queryStats)
+  }
+
+  it should "run queries" in {
+    implicit val spark = SparkSessionProvider.spark
+    implicit val workload = mkWorkload
+
+    tables.foreach { t =>
+      spark.read.parquet(s"hdfs://localhost:9000/tpcds-warehouse/tpcds.db/$t").createOrReplaceTempView(t)
+    }
+
+    val queries = workload.extractQueries
+    val problemQueries = Seq(
+      "query28.tpl", // Use the CROSS JOIN syntax to allow cartesian products between these relations.;
+      "query66.tpl", // mismatched input 'from' expecting -- ,sum(oct_net) as oct_net
+      "query90.tpl", // Use the CROSS JOIN syntax to allow cartesian products between these relations.;
+      "query88.tpl", // Use the CROSS JOIN syntax to allow cartesian products between these relations.;
+      "query30.tpl", // cannot resolve '`c_last_review_date_sk`'
+      "query84.tpl", // extraneous input '|' expecting
+      "query2.tpl",  // extraneous input 'select' expecting
+      "query61.tpl", // Use the CROSS JOIN syntax to allow cartesian products between these relations.;
+      "query49.tpl"
+    )
+
+    val queryStats = queries
+      .filterNot  { q => problemQueries.contains(q.queryTemplate) }
+      .zipWithIndex
+      .map(runQueries)
+    queryStats.foreach(println)
   }
 
   it should "runQuery with q0" in {

@@ -17,7 +17,11 @@
 
 package com.ibm.sparktc.sparkbench.workload.tpcds
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.QueryStreamRgx
+import java.io.FileNotFoundException
+
+import scala.io.Source.{fromFile, fromInputStream}
+import scala.util.Try
+
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -51,6 +55,7 @@ object TpcDsWorkload extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
   val name = "tpcds"
+  private val QueryStreamRgx = """^-- start query ([0-9]+) in stream ([0-9]+) using template (query[0-9]+\.tpl).*$""".r
 
   override def apply(m: Map[String, Any]): Workload = {
     TpcDsWorkload(
@@ -70,28 +75,35 @@ case class TpcDsWorkload(
   ) extends Workload {
   import TpcDsWorkload._
 
+  private def getLines = Try {
+    fromFile(queryStream).getLines
+  }.recover {
+    case _: FileNotFoundException =>
+      log.warn(s"Failed to load queryStream $queryStream from filesystem. Trying from resource")
+      fromInputStream(getClass.getResourceAsStream(queryStream)).getLines
+  }.get
+
   private[tpcds] def extractQueries: Seq[TpcDsQueryInfo] = {
-    val is = getClass.getResourceAsStream(queryStream)
+    val lines = getLines
     val initialState = (QueryStateNone: QueryState, Option.empty[TpcDsQueryInfo], Seq.empty[TpcDsQueryInfo])
-    val res = scala.io.Source.fromInputStream(is).getLines.foldLeft(initialState) {
-      case ((state, _, queryInfo), line) if state == QueryStateNone && line.startsWith("-- start query")=>
+    lines.foldLeft(initialState) {
+      case ((state, _, queryInfo), line) if state == QueryStateNone && line.startsWith("-- start query") =>
         val QueryStreamRgx(queryNum, streamNum, queryTemplate) = line
         (QueryStateScanning, Some(TpcDsQueryInfo(queryNum.toInt, streamNum.toInt, queryTemplate, Seq.empty)), queryInfo)
       case ((state, qs, queryInfo), line) if state == QueryStateScanning && line.startsWith("-- end query") =>
         (QueryStateNone, None, queryInfo ++ qs)
       case ((state, qs, queryInfo), line) if state == QueryStateScanning =>
         (QueryStateScanning, qs.map { q => q.copy(queries = q.queries :+ line) }, queryInfo)
-    }
-    res._3
+    }._3
   }
 
   private[tpcds] def runQuery(queryInfo: TpcDsQueryInfo)(implicit spark: SparkSession): Seq[TpcDsQueryStats] = {
-    val queries = queryInfo.queries.mkString(" ").split(";")
+    val queries = queryInfo.queries.mkString(" ").split(";").map(_.trim).filter(_.nonEmpty)
     if (queries.isEmpty) throw new Exception(s"No queries to run for $queryStream")
     log.error(s"Running TPC-DS Query ${queryInfo.queryTemplate}")
 
     queries.map { query =>
-      val (dur, result) = time(spark.sql(query).collect)
+      val (dur, result) = time(spark.sql(query.replace(";", "")).collect)
       TpcDsQueryStats(queryInfo.queryTemplate, dur, result.length)
     }
   }
