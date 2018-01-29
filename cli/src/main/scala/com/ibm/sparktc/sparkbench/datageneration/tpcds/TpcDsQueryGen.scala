@@ -18,6 +18,8 @@
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import java.io.{BufferedWriter, File, FileOutputStream, OutputStreamWriter}
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 
 import scala.io.Source.fromFile
 
@@ -37,6 +39,12 @@ object TpcDsQueryGen extends WorkloadDefaults {
 
   private val DazeAddRgx = """^(.*)(cast\s*\('[0-9-]{8,10}'\s+as\s+date\))\s*\+\s*([0-9]+)\s+days(.*)$""".r
   private val DazeSubRgx = """^(.*)(cast\s*\('[0-9-]{8,10}'\s+as\s+date\))\s*\-\s*([0-9]+)\s+days(.*)$""".r
+  private val NameWithSpacesRgx = """^(.*)"([a-zA-Z0-9\- >]+)"(.*)$""".r
+  private val WeirdConcatRgx = """^(.*)'([a-zA-Z0-9_-]+)'\s*\|\|\s*([a-zA-Z0-9_-]+)\s+as\s+([a-zA-Z0-9_-]+)(.*)$""".r
+  private val MoarConcatRgx = """^(\s+),\s*(['-z]+)\s*\|\|(.*)\s*\|\|\s*(['-z]+)\s+as\s+(['-z]+)$""".r
+  private val LastReviewRgx = """^(.*)c_last_review_date_sk(.*)$""".r
+  private val CatalogSalesStartRgx = """^(\s+from\s+)(select ws_sold_date_sk sold_date_sk)$""".r
+  private val CatalogSalesEndRgx = """^(\s+from catalog_sales\)),$""".r
 
   def apply(m: Map[String, Any]): Workload = TpcDsQueryGen(
     optionallyGet(m, "input"),
@@ -77,21 +85,27 @@ case class TpcDsQueryGen(
     tpcDsCount.foldLeft(cmd) { case (acc, cnt) => acc ++ Seq("-count", s"$cnt") }
   }
 
-  private def fixDaysUsage(f: File): Iterator[String] = fromFile(f).getLines.map {
+  private def fixQueries(f: File): Iterator[String] = fromFile(f).getLines.map {
     case DazeAddRgx(before, dt, days, after) => s"${before}date_add($dt, $days)$after"
     case DazeSubRgx(before, dt, days, after) => s"${before}date_sub($dt, $days)$after"
+    case NameWithSpacesRgx(before, nws, after) => s"$before`$nws`$after"
+    case WeirdConcatRgx(before, arg1, arg2, ccname, after) => s"${before}concat('$arg1', $arg2) as $ccname$after"
+    case MoarConcatRgx(one, two, three, four, five) => s"$one, concat($two, $three, $four) as $five"
+    case LastReviewRgx(before, after) => s"${before}c_last_review_date$after"
+    case CatalogSalesStartRgx(before, after) => s"$before($after"
+    case CatalogSalesEndRgx(before) => s"$before),"
     case line => line
   }
 
   private def mkSparkSqlCompliant(f: File): Unit = f.listFiles.foreach {
     case ff if ff.getName.endsWith(".sql") =>
-      val lines = fixDaysUsage(ff)
+      val lines = fixQueries(ff)
       val newf = new File(s"${ff.getParent}/${ff.getName}.tmp")
       val bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(newf)))
       lines.foreach { l => bw.write(l); bw.newLine() }
       bw.flush()
       bw.close()
-      java.nio.file.Files.move(newf.toPath, ff.toPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+      Files.move(newf.toPath, ff.toPath, REPLACE_EXISTING)
     case _ => () // do nothing if there are other non-sql files in this directory
   }
 

@@ -191,20 +191,13 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     }
 
     val queries = workload.extractQueries
-    val problemQueries = Seq(
-      "query28.tpl", // Use the CROSS JOIN syntax to allow cartesian products between these relations.;
-      "query66.tpl", // mismatched input 'from' expecting -- ,sum(oct_net) as oct_net
-      "query90.tpl", // Use the CROSS JOIN syntax to allow cartesian products between these relations.;
-      "query88.tpl", // Use the CROSS JOIN syntax to allow cartesian products between these relations.;
-      "query30.tpl", // cannot resolve '`c_last_review_date_sk`'
-      "query84.tpl", // extraneous input '|' expecting
-      "query2.tpl",  // extraneous input 'select' expecting
-      "query61.tpl", // Use the CROSS JOIN syntax to allow cartesian products between these relations.;
-      "query49.tpl"
-    )
+//    val problemQueries = Seq(
+//      "query30.tpl", // cannot resolve '`c_last_review_date_sk`'
+//      "query2.tpl"   // extraneous input 'select' expecting
+//    )
 
     val queryStats = queries
-      .filterNot  { q => problemQueries.contains(q.queryTemplate) }
+//      .filterNot  { q => problemQueries.contains(q.queryTemplate) }
       .zipWithIndex
       .map(runQueries)
     queryStats.foreach(println)
