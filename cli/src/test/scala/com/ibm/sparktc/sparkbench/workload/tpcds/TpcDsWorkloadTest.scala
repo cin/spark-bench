@@ -166,7 +166,6 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     q28act shouldBe q29
     //scalastyle:on magic.number
 
-    println(queries(5))
     q0queries = queries
   }
 
@@ -184,14 +183,14 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
 
   // not sure how to test this bc you can't alter the spark.sql.warehouse.dir after the
   // spark session has been created
-  ignore should "mkTempTables" in {
-    implicit val spark = SparkSessionProvider.spark
-//    spark.conf.set("spark.sql.warehouse.dir", "hdfs://localhost:9000/tpcds-warehouse")
-    implicit val workload = mkWorkload(confMapTest + ("createtemptables" -> true))
-    workload.mkTempTables
-  }
+//  ignore should "setup" in {
+//    implicit val spark = SparkSessionProvider.spark
+////    spark.conf.set("spark.sql.warehouse.dir", "hdfs://localhost:9000/tpcds-warehouse")
+//    implicit val workload = mkWorkload(confMapTest + ("createtemptables" -> true))
+//    workload.setup
+//  }
 
-  ignore should "run queries" in {
+  it should "run queries" in {
     implicit val spark = SparkSessionProvider.spark
     implicit val workload = mkWorkload
 
@@ -200,21 +199,13 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     }
 
     val queries = workload.extractQueries
-//    val problemQueries = Seq(
-//      "query30.tpl", // cannot resolve '`c_last_review_date_sk`'
-//      "query2.tpl"   // extraneous input 'select' expecting
-//    )
-
-    val queryStats = queries
-//      .filterNot  { q => problemQueries.contains(q.queryTemplate) }
-      .zipWithIndex
-      .map(runQueries)
-    queryStats.foreach(println)
+    val queryStats = queries.zipWithIndex.map(runQueries)
   }
 
   it should "runQuery with q0" in {
     implicit val spark = SparkSessionProvider.spark
     val workload = mkWorkload
     val stats = workload.runQuery(q0queries.head)
+    stats should have size 1
   }
 }

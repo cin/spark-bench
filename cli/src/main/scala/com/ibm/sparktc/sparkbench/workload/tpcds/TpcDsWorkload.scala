@@ -111,19 +111,18 @@ case class TpcDsWorkload(
     }
   }
 
-  private[tpcds] def mkTempTables(implicit spark: SparkSession): Unit = {
+  private[tpcds] def setup(implicit spark: SparkSession): Unit = {
     if (createTempTables) {
       val warehouseDir = spark.sparkContext.getConf.get("spark.sql.warehouse.dir", "spark-warehouse")
       tables.foreach { t =>
         spark.read.parquet(s"$warehouseDir/$dbName.db/$t").createOrReplaceTempView(t)
       }
-    }
+    } else spark.sql(s"USE $dbName")
   }
 
   override def doWorkload(df: Option[DataFrame], spark: SparkSession): DataFrame = {
     implicit val explicitlyDeclaredImplicitSpark: SparkSession = spark
-    spark.sql(s"USE $dbName")
-    mkTempTables
+    setup
     val queryStats = extractQueries.map { queryInfo => (queryInfo.queryNum, runQuery(queryInfo)) }
     spark.createDataFrame(spark.sparkContext.parallelize(queryStats))
   }
