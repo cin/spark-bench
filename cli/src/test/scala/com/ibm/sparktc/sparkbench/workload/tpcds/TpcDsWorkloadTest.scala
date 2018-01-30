@@ -19,7 +19,7 @@ package com.ibm.sparktc.sparkbench.workload.tpcds
 
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
-import org.apache.spark.sql.SparkSession
+import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.time
 import org.scalatest.{FlatSpec, Matchers}
 
 class TpcDsWorkloadTest extends FlatSpec with Matchers {
@@ -150,7 +150,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
   "TpcDsWorkload" should "extractQueries from a good file" in {
     val workload = mkWorkload
     val queries = workload.extractQueries
-    queries should have size 99
+    queries should have size 2
 
     queries.head.queryNum shouldBe 1
     queries.head.streamNum shouldBe 0
@@ -159,27 +159,29 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     q1act shouldBe q1
 
     //scalastyle:off magic.number
-    queries(28).queryNum shouldBe 29
-    queries(28).streamNum shouldBe 0
-    queries(28).queryTemplate shouldBe "query60.tpl"
-    val q28act = fixupQueries(queries(28).queries)
+    queries(1).queryNum shouldBe 2
+    queries(1).streamNum shouldBe 0
+    queries(1).queryTemplate shouldBe "query60.tpl"
+    val q28act = fixupQueries(queries(1).queries)
     q28act shouldBe q29
     //scalastyle:on magic.number
 
     q0queries = queries
   }
 
-  private def runQueries(
-      qi: (TpcDsQueryInfo, Int))(implicit workload: TpcDsWorkload, spark: SparkSession) = {
-    val (queryInfo, i) = qi
-    val queryStats = try {
-      workload.runQuery(queryInfo)
-    } catch { case e: Throwable =>
-      log.error(s"$i, ${queryInfo.queryNum}, ${queryInfo.queryTemplate}\n${queryInfo.queries.mkString("\n")}", e)
-      Seq(TpcDsQueryStats(queryInfo.queryTemplate, 0, 0))
-    }
-    (queryInfo.queryNum, queryStats)
-  }
+//  import org.apache.spark.sql.SparkSession
+//
+//  private def runQueries(
+//      qi: (TpcDsQueryInfo, Int))(implicit workload: TpcDsWorkload, spark: SparkSession) = {
+//    val (queryInfo, i) = qi
+//    val queryStats = try {
+//      workload.runQuery(queryInfo)
+//    } catch { case e: Throwable =>
+//      log.error(s"$i, ${queryInfo.queryNum}, ${queryInfo.queryTemplate}\n${queryInfo.queries.mkString("\n")}", e)
+//      Seq(TpcDsQueryStats(queryInfo.queryTemplate, 0, 0))
+//    }
+//    (queryInfo.queryNum, queryStats)
+//  }
 
   // not sure how to test this bc you can't alter the spark.sql.warehouse.dir after the
   // spark session has been created
@@ -190,22 +192,28 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
 //    workload.setup
 //  }
 
-  it should "run queries" in {
-    implicit val spark = SparkSessionProvider.spark
-    implicit val workload = mkWorkload
+//  it should "run queries" in {
+//    implicit val spark = SparkSessionProvider.spark
+//    implicit val workload = mkWorkload
+//
+//    tables.foreach { t =>
+//      spark.read.parquet(s"hdfs://localhost:9000/tpcds-warehouse/tpcds.db/$t").createOrReplaceTempView(t)
+//    }
+//
+//    val queries = workload.extractQueries
+//    val queryStats = queries.zipWithIndex.map(runQueries)
+//  }
 
+  ignore should "runQuery with q0" in {
+    implicit val spark = SparkSessionProvider.spark
+    val workload = mkWorkload
     tables.foreach { t =>
       spark.read.parquet(s"hdfs://localhost:9000/tpcds-warehouse/tpcds.db/$t").createOrReplaceTempView(t)
     }
-
-    val queries = workload.extractQueries
-    val queryStats = queries.zipWithIndex.map(runQueries)
-  }
-
-  it should "runQuery with q0" in {
-    implicit val spark = SparkSessionProvider.spark
-    val workload = mkWorkload
-    val stats = workload.runQuery(q0queries.head)
+    val (dur, stats) = time(workload.runQuery(q0queries.head))
     stats should have size 1
+    stats.head.queryName shouldBe "query96.tpl"
+    stats.head.duration shouldBe dur +- 1000L
+    stats.head.resultLengh shouldBe 1
   }
 }
