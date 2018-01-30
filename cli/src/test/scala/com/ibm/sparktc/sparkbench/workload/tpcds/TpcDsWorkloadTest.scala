@@ -182,7 +182,16 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     (queryInfo.queryNum, queryStats)
   }
 
-  it should "run queries" in {
+  // not sure how to test this bc you can't alter the spark.sql.warehouse.dir after the
+  // spark session has been created
+  ignore should "mkTempTables" in {
+    implicit val spark = SparkSessionProvider.spark
+//    spark.conf.set("spark.sql.warehouse.dir", "hdfs://localhost:9000/tpcds-warehouse")
+    implicit val workload = mkWorkload(confMapTest + ("createtemptables" -> true))
+    workload.mkTempTables
+  }
+
+  ignore should "run queries" in {
     implicit val spark = SparkSessionProvider.spark
     implicit val workload = mkWorkload
 

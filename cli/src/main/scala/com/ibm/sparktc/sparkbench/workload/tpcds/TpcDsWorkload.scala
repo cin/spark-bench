@@ -22,6 +22,7 @@ import java.io.FileNotFoundException
 import scala.io.Source.{fromFile, fromInputStream}
 import scala.util.Try
 
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -62,7 +63,8 @@ object TpcDsWorkload extends WorkloadDefaults {
       optionallyGet(m, "input"),
       optionallyGet(m, "output"),
       getOrThrowT[String](m, "querystream"),
-      getOrDefault[String](m, "dbname", "tpcds")
+      getOrDefault[String](m, "dbname", "tpcds"),
+      getOrDefault[Boolean](m, "createtemptables", false)
     )
   }
 }
@@ -71,7 +73,8 @@ case class TpcDsWorkload(
     input: Option[String],
     output: Option[String],
     queryStream: String,
-    dbName: String
+    dbName: String,
+    createTempTables: Boolean
   ) extends Workload {
   import TpcDsWorkload._
 
@@ -108,9 +111,19 @@ case class TpcDsWorkload(
     }
   }
 
+  private[tpcds] def mkTempTables(implicit spark: SparkSession): Unit = {
+    if (createTempTables) {
+      val warehouseDir = spark.sparkContext.getConf.get("spark.sql.warehouse.dir", "spark-warehouse")
+      tables.foreach { t =>
+        spark.read.parquet(s"$warehouseDir/$dbName.db/$t").createOrReplaceTempView(t)
+      }
+    }
+  }
+
   override def doWorkload(df: Option[DataFrame], spark: SparkSession): DataFrame = {
     implicit val explicitlyDeclaredImplicitSpark: SparkSession = spark
     spark.sql(s"USE $dbName")
+    mkTempTables
     val queryStats = extractQueries.map { queryInfo => (queryInfo.queryNum, runQuery(queryInfo)) }
     spark.createDataFrame(spark.sparkContext.parallelize(queryStats))
   }
