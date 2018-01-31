@@ -29,7 +29,7 @@ import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
-case class TpcDsQueryStats(queryName: String, duration: Long, resultLengh: Int)
+case class TpcDsQueryStats(queryName: String, queryNum: Int, queryIdx: Int, duration: Long, resultLengh: Int)
 case class TpcDsQueryInfo(queryNum: Int, streamNum: Int, queryTemplate: String, queries: Seq[String])
 
 trait QueryState
@@ -90,16 +90,17 @@ case class TpcDsWorkload(
     val queries = queryInfo.queries
       .mkString(" ")
       .split(";")
-      .filter(_.nonEmpty)
-      .map(_.trim)
       .map(_.replace(";", ""))
+      .map(_.trim)
+      .filter(_.nonEmpty)
 
     if (queries.isEmpty) throw new Exception(s"No queries to run for $queryStream")
     log.info(s"Running TPC-DS Query ${queryInfo.queryTemplate}")
 
-    queries.map { query =>
+    queries.zipWithIndex.map { case (query, i) =>
+      log.info(s"Running query $i from ${queryInfo.queryTemplate}:\n$query")
       val (dur, result) = time(spark.sql(query).collect)
-      TpcDsQueryStats(queryInfo.queryTemplate, dur, result.length)
+      TpcDsQueryStats(queryInfo.queryTemplate, queryInfo.queryNum, i, dur, result.length)
     }
   }
 
@@ -117,8 +118,8 @@ case class TpcDsWorkload(
     setup()
     val queries = extractQueries()
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(math.min(parallelQueriesToRun, queries.length)))
-    val queryStatsFutures = queries.map { queryInfo => Future((queryInfo.queryNum, runQuery(queryInfo))) }
-    val queryStats = waitForFutures(queryStatsFutures)
+    val queryStatsFutures = queries.map { queryInfo => Future(runQuery(queryInfo)) }
+    val queryStats = waitForFutures(queryStatsFutures).flatten
     spark.createDataFrame(spark.sparkContext.parallelize(queryStats))
   }
 }
