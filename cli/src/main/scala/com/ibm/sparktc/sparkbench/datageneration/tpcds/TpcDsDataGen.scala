@@ -25,8 +25,7 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 import java.io.File
 import java.util.concurrent.Executors.newFixedThreadPool
 
-import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, ExecutionContext, Future, ExecutionContextExecutorService => ExSvc}
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService => ExSvc, Future}
 import scala.io.Source.fromInputStream
 import scala.util.Try
 
@@ -88,11 +87,12 @@ case class TpcDsDataGen(
     FileUtil.copy(file, dstFs, dstDir, false, conf)
   }
 
-  private[tpcds] def asyncCopy(file: File, tableName: String)(implicit ec: ExSvc, conf: Configuration): Future[Boolean] = Future {
+  private[tpcds] def asyncCopy(file: File, tableName: String)
+      (implicit ec: ExSvc, conf: Configuration) = Future {
     syncCopy(file, s"$getOutputDataDir/$tableName")
   }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
 
-  protected[tpcds] def createDatabase(implicit spark: SparkSession): Unit = {
+  protected[tpcds] def createDatabase()(implicit spark: SparkSession): Unit = {
     spark.sql(s"DROP DATABASE IF EXISTS $dbName CASCADE")
     spark.sql(s"CREATE DATABASE $dbName")
     spark.sql(s"USE $dbName")
@@ -135,11 +135,6 @@ case class TpcDsDataGen(
     sqlStmts.map(spark.sql)
   }
 
-  private[tpcds] def waitForFutures[T](futures: Seq[Future[T]])(implicit ec: ExSvc): Seq[T] = {
-    try Await.result(Future.sequence(futures), Duration.Inf)
-    finally ec.shutdown()
-  }
-
   /**
     * Since dsdgen can create multiple tables (e.g. child tables) per call, can't simply
     * depend on the table name passed to the command. Instead, the table name is determined
@@ -161,7 +156,7 @@ case class TpcDsDataGen(
     } else Seq.empty
   }
 
-  private[tpcds] def mkCmd(topt: TableOptions, chile: Int, outputDir: String) = {
+  private[tpcds] def mkCmd(topt: TableOptions, child: Int, outputDir: String) = {
     val cmd = Seq(
       s"$tpcDsKitDir/tools/dsdgen",
       "-sc", s"$tpcDsScale",
@@ -172,13 +167,13 @@ case class TpcDsDataGen(
     )
     topt.partitions.foldLeft(cmd) { case (acc, partitions) =>
       acc ++ Seq(
-        "-child", s"$chile",
+        "-child", s"$child",
         "-parallel", s"$partitions"
       )
     }
   }
 
-  private[tpcds] def fixupOutputDirPath: String = output match {
+  private[tpcds] val outputPath: String = output match {
     case Some(d) if d.nonEmpty && d.endsWith("/") => d
     case Some(d) if d.nonEmpty => d + "/"
     case Some(d) => d
@@ -198,56 +193,70 @@ case class TpcDsDataGen(
     }
   }
 
-  private[tpcds] def validateRowCounts(implicit spark: SparkSession): Seq[(String, Long)] = tables.map(validateRowCount)
-
   private[tpcds] def validateResults(results: Seq[TpcDsTableGenResults])(implicit spark: SparkSession): Unit = {
     results.foreach { i => log.error(i.toString) }
-    if (results.isEmpty) throw new RuntimeException("Data generation failed for tpcds. Check the executor logs for details.")
-    else {
+    if (results.isEmpty) {
+      throw new RuntimeException("Data generation failed for tpcds. Check the executor logs for details.")
+    } else {
       val tablesPresentInOutput = tables.flatMap { table =>
         results
           .find { r => r.table.startsWith(table) && r.res }
           .orElse { log.error(s"Failed to find $table in output"); None }
       }
       if (tablesPresentInOutput.length != tables.length) {
-        throw new RuntimeException("Not all tables are present in the output. Check the executor logs for more details.")
+        throw new RuntimeException(
+          "Not all tables are present in the output. Check the executor logs for more details."
+        )
       }
     }
   }
 
-  private def genData(topt: TableOptions, chile: Int) = {
-    val outputDir = s"$fixupOutputDirPath${topt.name}$chile"
+  private def genData(topt: TableOptions, child: Int): Seq[TpcDsTableGenResults] = {
+    val outputDir = s"$outputPath${topt.name}$child"
     try {
       val f = new File(outputDir)
       if (!f.exists) f.mkdirs
       log.debug(s"Outputting data to ${f.getAbsolutePath}")
-      if (runCmd(mkCmd(topt, chile, outputDir))) {
+      if (runCmd(mkCmd(topt, child, outputDir))) {
         copyToHdfs(f)
       } else Seq.empty[TpcDsTableGenResults]
-    } catch { case e: Throwable => log.error(s"Failed to handle partition #$chile", e); Seq.empty[TpcDsTableGenResults] }
-    finally deleteLocalDir(outputDir)
+    } catch { case e: Throwable =>
+      log.error(s"Failed to handle partition #$child", e)
+      Seq.empty[TpcDsTableGenResults]
+    } finally {
+      deleteLocalDir(outputDir)
+    }
   }
 
-  private def genData(topt: TableOptions)(implicit spark: SparkSession, exSvc: ExSvc): Future[RDD[Seq[TpcDsTableGenResults]]] = Future {
+  private def genData(topt: TableOptions)
+      (implicit spark: SparkSession, exSvc: ExSvc): Future[RDD[Seq[TpcDsTableGenResults]]] = Future {
     val numPartitions = topt.partitions.getOrElse(1)
     spark.sparkContext.parallelize(1 to numPartitions, numPartitions).map(genData(topt, _))
   }
 
-  private[tpcds] def genDataWithTiming(topts: Seq[TableOptions])(implicit spark: SparkSession, exSvc: ExSvc) = {
+  private[tpcds] def genDataWithTiming(topts: Seq[TableOptions])
+      (implicit spark: SparkSession, exSvc: ExSvc) = {
     topts.map { topt =>
       val (t, res) = time(genData(topt))
       (topt.name, t, res)
     }
   }
 
-  private def genData(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableGenStats] = {
-    val seqOfRdds = genDataWithTiming(tableOptions)
-    val rdds = waitForFutures(seqOfRdds.map(_._3))
-    validateResults(rdds.flatMap(_.collect).flatten)
-    seqOfRdds.map(TpcDsTableGenStats(_))
+  private def genData()(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableGenStats] = {
+    try {
+      val seqOfRdds = genDataWithTiming(tableOptions)
+      val rdds = waitForFutures(seqOfRdds.map(_._3))
+      validateResults(rdds.flatMap(_.collect).flatten)
+      seqOfRdds.map(TpcDsTableGenStats(_))
+    } catch { case e: Throwable =>
+      log.error("Failed to generate data for TPC-DS", e)
+      Seq.empty[TpcDsTableGenStats]
+    }
   }
 
-  private def addRowCountsToStats(stats: Seq[TpcDsTableGenStats], rowCounts: Seq[(String, Long)]) = stats.map { r =>
+  private def addRowCountsToStats(
+      stats: Seq[TpcDsTableGenStats],
+      rowCounts: Seq[(String, Long)]) = stats.map { r =>
     rowCounts.find(_._1 == r.table) match {
       case Some(rc) => r.copy(rowCount = rc._2)
       case _ => r
@@ -258,16 +267,12 @@ case class TpcDsDataGen(
     import spark.sqlContext.implicits._
     implicit val explicitlyDeclaredImplicitSpark = spark
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(tableOptions.length))
-
-    val stats = try genData
-    catch { case e: Throwable => log.error("Failed to generate data for TPC-DS", e); Seq.empty[TpcDsTableGenStats] }
-    finally ec.shutdown()
-
-    createDatabase
+    val stats = genData()
+    createDatabase()
     // TODO: optimization possible here.
     // create the tables (convert from CSV to parquet) right after each table has been created
     tables.foreach(createTable)
-    val rowCounts = validateRowCounts
+    val rowCounts = tables.map(validateRowCount)
     val statsWithRowCounts = addRowCountsToStats(stats, rowCounts)
     spark.sparkContext.parallelize(statsWithRowCounts).toDF
   }

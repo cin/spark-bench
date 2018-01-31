@@ -181,7 +181,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
 
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(1))
     val f = workload.asyncCopy(tmpFile.toFile, "foo")
-    val results = workload.waitForFutures(Seq(f))
+    val results = waitForFutures(Seq(f))
     results.forall(_ == true) shouldBe true
 
     val dstFn = new Path(s"$outputDir/foo", tmpFile.toFile.getName)
@@ -240,24 +240,24 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
     cmd shouldBe expected
   }
 
-  it should "fixupOutputDirPath without a trailing slash" in {
+  it should "outputPath without a trailing slash" in {
     val workload = mkWorkload
-    workload.fixupOutputDirPath shouldBe "test-output/"
+    workload.outputPath shouldBe "test-output/"
   }
 
-  it should "fixupOutputDirPath with a trailing slash" in {
+  it should "outputPath with a trailing slash" in {
     val workload = mkWorkload(confMapTest + ("output" -> "test-output/"))
-    workload.fixupOutputDirPath shouldBe "test-output/"
+    workload.outputPath shouldBe "test-output/"
   }
 
-  it should "fixupOutputDirPath with an empty output path" in {
+  it should "outputPath with an empty output path" in {
     val workload = mkWorkload(confMapTest + ("output" -> ""))
-    workload.fixupOutputDirPath shouldBe ""
+    workload.outputPath shouldBe ""
   }
 
-  it should "fixupOutputDirPath with no output" in {
+  it should "outputPath with no output" in {
     val workload = mkWorkload(confMapTest - "output")
-    workload.fixupOutputDirPath shouldBe ""
+    workload.outputPath shouldBe ""
   }
 
   it should "validateResults successfully" in {
@@ -410,7 +410,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
     val dstDir = new Path(hdfsDataDir)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
     dstFs.delete(dstDir, true)
-    workload.deleteLocalDir(workload.fixupOutputDirPath)
+    workload.deleteLocalDir(workload.outputPath)
   }
 
   private def genDataTest(tableName: String, numPartitions: Option[Int]): Unit = {
@@ -425,7 +425,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
     results.head._1 shouldBe tableName
     results.head._2 should be > 0L
     results.head._2 should be <= dur
-    val r0 = workload.waitForFutures(Seq(results.head._3))
+    val r0 = waitForFutures(Seq(results.head._3))
     r0 should have size 1
     r0.foreach { r =>
       val r1 = r.collect.flatten

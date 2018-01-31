@@ -19,6 +19,8 @@ package com.ibm.sparktc.sparkbench.utils
 
 import java.io.StringWriter
 
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContextExecutorService => ExSvc, Future}
 import scala.sys.process._
 import scala.util.{Failure, Success, Try}
 
@@ -38,7 +40,7 @@ object GeneralFunctions {
   }
 
   def getOrDefaultOpt[A](opt: Option[Any], default: A, func: Any => A = defaultFn[A](_: Any)): A = {
-    opt.foldLeft(default) { case (d, a) => tryWithDefault(a, d, func) }
+    opt.map(tryWithDefault(_, default, func)).getOrElse(default)
   }
 
   def getOrDefault[A](map: Map[String, Any], name: String, default: A, func: Any => A = defaultFn[A](_: Any)): A = {
@@ -109,4 +111,9 @@ object GeneralFunctions {
         throw new RuntimeException(msg)
     }
   }.isSuccess
+
+  def waitForFutures[T](futures: Seq[Future[T]], duration: Duration = Duration.Inf)(implicit ec: ExSvc): Seq[T] = {
+    try Await.result(Future.sequence(futures), duration)
+    finally ec.shutdown()
+  }
 }

@@ -17,6 +17,10 @@
 
 package com.ibm.sparktc.sparkbench.utils
 
+import java.util.concurrent.Executors.newFixedThreadPool
+
+import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
 import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
 
 class GeneralFunctionsTest extends FlatSpec with Matchers with BeforeAndAfterEach{
@@ -136,5 +140,19 @@ class GeneralFunctionsTest extends FlatSpec with Matchers with BeforeAndAfterEac
 
   it should "runCmd fail appropriately with different current working directory" in {
     runCmd(Seq("ls", "-al", "tpcds-example.conf"), Some("notadir")) shouldBe false
+  }
+
+  it should "waitForFutures" in {
+    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(3))
+    val futures = (1L to 3L).map { i =>
+      Future {
+        Thread.sleep(i * 1000L)
+        i
+      }
+    }
+
+    val (dur, res) = time(waitForFutures(futures, 4.seconds))
+    res should have size 3
+    dur shouldBe 3000000000L +- 500000000L
   }
 }

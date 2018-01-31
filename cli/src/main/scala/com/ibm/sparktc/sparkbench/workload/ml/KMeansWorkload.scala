@@ -129,7 +129,7 @@ case class KMeansWorkload(input: Option[String],
   }
 
   def save(ds: RDD[Vector], model: KMeansModel, spark: SparkSession): Long = {
-    val res = time {
+    val (duration, _) = time {
       val vectorsAndClusterIdx: RDD[(String, Int)] = ds.map { point =>
         val prediction = model.predict(point)
         (point.toString, prediction)
@@ -139,6 +139,6 @@ case class KMeansWorkload(input: Option[String],
       writeToDisk(output.get, vectorsAndClusterIdx.toDF(), spark = spark)
     }
     ds.unpersist()
-    res._1
+    duration
   }
 }
