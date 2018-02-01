@@ -106,9 +106,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
   private implicit val conf = new Configuration
 
   private val dbName = "testdb"
-
-  // TODO: is there a less brittle way to do this?
-  private val cwd = new java.io.File(".").getCanonicalPath
+  private val cwd = sys.props("user.dir")
   private val kitDir = s"$cwd/cli/src/test/resources/tpcds/${
     sys.props("os.name") match {
       case "Linux" => "linux"
@@ -182,7 +180,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(1))
     val f = workload.asyncCopy(tmpFile.toFile, "foo")
     val results = waitForFutures(Seq(f))
-    results.forall(_ == true) shouldBe true
+    results.foreach(_ shouldBe true)
 
     val dstFn = new Path(s"$outputDir/foo", tmpFile.toFile.getName)
     val dstFs1 = FileSystem.get(dstDir.toUri, conf)

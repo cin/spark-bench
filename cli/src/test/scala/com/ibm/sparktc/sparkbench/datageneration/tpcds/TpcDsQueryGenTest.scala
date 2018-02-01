@@ -21,9 +21,7 @@ import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import org.scalatest.{FlatSpec, Matchers}
 
 class TpcDsQueryGenTest extends FlatSpec with Matchers {
-
-  // TODO: is there a less brittle way to do this?
-  private val cwd = new java.io.File(".").getCanonicalPath
+  private val cwd = sys.props("user.dir")
   private val kitDir = s"$cwd/cli/src/test/resources/tpcds/${
     sys.props("os.name") match {
       case "Linux" => "linux"
