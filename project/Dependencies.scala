@@ -42,6 +42,11 @@ object Dependencies {
     "org.json4s" %% "json4s-native" % "3.5.3"
   )
 
+  val jsonCreation = Seq(
+    "com.softwaremill.sttp" %% "json4s" % "1.1.3",
+    "com.softwaremill.sttp" %% "core" % "1.1.3"
+  )
+
   val typesafe = Seq(
     "com.typesafe" % "config" % "1.3.1"
   )
