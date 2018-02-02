@@ -217,9 +217,8 @@ case class TpcDsDataGen(
       val f = new File(outputDir)
       if (!f.exists) f.mkdirs
       log.debug(s"Outputting data to ${f.getAbsolutePath}")
-      if (runCmd(mkCmd(topt, child, outputDir))) {
-        copyToHdfs(f)
-      } else Seq.empty[TpcDsTableGenResults]
+      if (runCmd(mkCmd(topt, child, outputDir))) copyToHdfs(f)
+      else Seq.empty[TpcDsTableGenResults]
     } catch { case e: Throwable =>
       log.error(s"Failed to handle partition #$child", e)
       Seq.empty[TpcDsTableGenResults]

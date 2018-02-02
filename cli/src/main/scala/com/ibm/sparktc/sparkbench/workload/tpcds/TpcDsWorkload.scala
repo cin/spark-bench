@@ -17,14 +17,10 @@
 
 package com.ibm.sparktc.sparkbench.workload.tpcds
 
-import java.io.FileNotFoundException
 import java.util.concurrent.Executors.newFixedThreadPool
-
 import scala.concurrent.{ExecutionContext, Future}
-import scala.io.Source.{fromFile, fromInputStream}
-import scala.util.Try
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{loadFile, tables}
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -64,18 +60,9 @@ case class TpcDsWorkload(
   ) extends Workload {
   import TpcDsWorkload._
 
-  private def readQueryStreamFile() = Try {
-    fromFile(queryStream).getLines
-  }.recover {
-    case _: FileNotFoundException =>
-      log.warn(s"Failed to load queryStream $queryStream from filesystem. Trying from resource")
-      fromInputStream(getClass.getResourceAsStream(queryStream)).getLines
-  }.get
-
   private[tpcds] def extractQueries(): Seq[TpcDsQueryInfo] = {
-    val lines = readQueryStreamFile()
     val initialState = (QueryStateNone: QueryState, Option.empty[TpcDsQueryInfo], Seq.empty[TpcDsQueryInfo])
-    lines.foldLeft(initialState) {
+    loadFile(queryStream).get.foldLeft(initialState) {
       case ((QueryStateNone, _, queryInfo), line) if line.startsWith("-- start query") =>
         val QueryStreamRgx(queryNum, streamNum, queryTemplate) = line
         (QueryStateScanning, Some(TpcDsQueryInfo(queryNum.toInt, streamNum.toInt, queryTemplate, Seq.empty)), queryInfo)

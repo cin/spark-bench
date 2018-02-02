@@ -17,7 +17,14 @@
 
 package com.ibm.sparktc.sparkbench.common.tpcds
 
+import java.io.FileNotFoundException
+
+import scala.io.Source.{fromFile, fromInputStream}
+import scala.util.Try
+
 object TpcDsBase {
+  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
+
   val tables = Array(
     "call_center",
     "catalog_page",
@@ -44,4 +51,14 @@ object TpcDsBase {
     "web_sales",
     "web_site"
   )
+
+  def loadFile(fn: String): Try[Iterator[String]] = {
+    Try {
+      fromFile(fn).getLines
+    }.recover {
+      case _: FileNotFoundException =>
+        log.warn(s"Failed to load file $fn from filesystem. Trying from resource")
+        fromInputStream(getClass.getResourceAsStream(fn)).getLines
+    }
+  }
 }
