@@ -23,6 +23,8 @@ object TableRowCounts {
   // scalastyle:off magic.number
   private[tpcds] val supportedScales = Seq(
     1,      //   1GB
+    10,     //  10GB
+    100,    // 100GB
     1000,   //   1TB
     3000,   //   3TB
     10000,  //  10TB

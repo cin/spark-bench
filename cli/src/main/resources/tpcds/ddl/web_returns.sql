@@ -32,6 +32,7 @@ OPTIONS(header "false", delimiter "|", path "${TPCDS_GENDATA_DIR}/web_returns")
 drop table if exists web_returns;
 create table web_returns
 using parquet
+${PARTITIONEDBY_STATEMENT}
 as (select * from web_returns_text)
 ;
 drop table if exists web_returns_text;

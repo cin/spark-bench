@@ -6,13 +6,8 @@
     "name": "catalog_page"
   },
   {
-    "name": "catalog_returns",
-    "skipgen": true,
-    "partitionColumns": ["cr_returned_date_sk"]
-  },
-  {
     "name": "catalog_sales",
-    "partitions": 10,
+    "partitions": 1000,
     "partitionColumns": ["cs_sold_date_sk"]
   },
   {
@@ -32,7 +27,7 @@
   },
   {
     "name": "inventory",
-    "partitions": 10,
+    "partitions": 1000,
     "partitionColumns": ["inv_date_sk"]
   },
   {
@@ -54,13 +49,8 @@
     "name": "store"
   },
   {
-    "name": "store_returns",
-    "skipgen": true,
-    "partitionColumns": ["sr_returned_date_sk"]
-  },
-  {
     "name": "store_sales",
-    "partitions": 10,
+    "partitions": 1000,
     "partitionColumns": ["ss_sold_date_sk"]
   },
   {
@@ -73,13 +63,8 @@
     "name": "web_page"
   },
   {
-    "name": "web_returns",
-    "skipgen": true,
-    "partitionColumns": ["wr_returned_date_sk"]
-  },
-  {
     "name": "web_sales",
-    "partitions": 10,
+    "partitions": 1000,
     "partitionColumns": ["ws_sold_date_sk"]
   },
   {

@@ -20,7 +20,7 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.loadFile
 import org.json4s._, native.JsonMethods._
 
-case class TableOptions(name: String, partitions: Option[Int], partitionColumns: Seq[String])
+case class TableOptions(name: String, skipgen: Option[Boolean], partitions: Option[Int], partitionColumns: Seq[String])
 
 object TableOptions {
   private implicit val formats = DefaultFormats

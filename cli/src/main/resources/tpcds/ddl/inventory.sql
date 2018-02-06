@@ -12,6 +12,7 @@ OPTIONS(header "false", delimiter "|", path "${TPCDS_GENDATA_DIR}/inventory")
 drop table if exists inventory;
 create table inventory 
 using parquet
+${PARTITIONEDBY_STATEMENT}
 as (select * from inventory_text)
 ;
 drop table if exists inventory_text;

@@ -42,6 +42,7 @@ OPTIONS(header "false", delimiter "|", path "${TPCDS_GENDATA_DIR}/web_sales")
 drop table if exists web_sales;
 create table web_sales
 using parquet
+${PARTITIONEDBY_STATEMENT}
 as (select * from web_sales_text)
 ;
 drop table if exists web_sales_text;

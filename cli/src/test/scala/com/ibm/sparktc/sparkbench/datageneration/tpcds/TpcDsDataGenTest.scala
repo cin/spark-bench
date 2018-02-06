@@ -29,80 +29,6 @@ import org.scalatest.{FlatSpec, Matchers}
 import scala.concurrent.ExecutionContext
 
 class TpcDsDataGenTest extends FlatSpec with Matchers {
-  private val tableOptions = """[
-    {
-      "name": "call_center"
-    },
-    {
-      "name": "catalog_page"
-    },
-    {
-      "name": "catalog_sales"
-      "partitions": 10
-      "partitionColumns": ["cs_sold_date_sk"]
-    },
-    {
-      "name": "customer"
-    },
-    {
-      "name": "customer_address"
-    },
-    {
-      "name": "customer_demographics"
-    },
-    {
-      "name": "date_dim"
-    },
-    {
-      "name": "income_band"
-    },
-    {
-      "name": "inventory"
-      "partitions": 10
-      "partitionColumns": ["inv_date_sk"]
-    },
-    {
-      "name": "item"
-    },
-    {
-      "name": "household_demographics"
-    },
-    {
-      "name": "promotion"
-    },
-    {
-      "name": "reason"
-    },
-    {
-      "name": "ship_mode"
-    },
-    {
-      "name": "store"
-    },
-    {
-      "name": "store_sales"
-      "partitions": 10
-      "partitionColumns": ["ss_sold_date_sk"]
-    },
-    {
-      "name": "time_dim"
-    },
-    {
-      "name": "warehouse"
-    },
-    {
-      "name": "web_page"
-    },
-    {
-      "name": "web_sales"
-      "partitions": 10
-      "partitionColumns": ["ws_sold_date_sk"]
-    },
-    {
-      "name": "web_site"
-    }
-  ]"""
-
   private implicit val conf = new Configuration
 
   private val dbName = "testdb"
@@ -123,7 +49,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
     "tpcds-kit-dir" -> kitDir,
     "tpcds-scale" -> 1,
     "tpcds-rngseed" -> 8,
-    "table-options" -> tableOptions
+    "table-options" -> "/tpcds/table-options.json"
   )
 
   private def mkWorkload: TpcDsDataGen = mkWorkload(confMapTest)
@@ -210,7 +136,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
 
   it should "mkCmd without partitions" in {
     val workload = mkWorkload
-    val cmd = workload.mkCmd(TableOptions("foo", None, Seq.empty), 0, "test-output")
+    val cmd = workload.mkCmd(TableOptions("foo", None, None, Seq.empty), 0, "test-output")
     val expected = Seq(
       s"$kitDir/tools/dsdgen",
       "-sc", "1",
@@ -224,7 +150,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
 
   it should "mkCmd with partitions" in {
     val workload = mkWorkload
-    val cmd = workload.mkCmd(TableOptions("foo", Some(8), Seq.empty), 2, "test-output") // scalastyle:ignore
+    val cmd = workload.mkCmd(TableOptions("foo", None, Some(8), Seq.empty), 2, "test-output") // scalastyle:ignore
     val expected = Seq(
       s"$kitDir/tools/dsdgen",
       "-sc", "1",
@@ -236,6 +162,12 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
       "-parallel", "8"
     )
     cmd shouldBe expected
+  }
+
+  it should "mkPartitionStmt" in {
+    val workload = mkWorkload
+    workload.mkPartitionStatement("catalog_sales") shouldBe "PARTITIONED BY(cs_sold_date_sk)"
+    workload.mkPartitionStatement("call_center") shouldBe ""
   }
 
   it should "outputPath without a trailing slash" in {
@@ -418,7 +350,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
 
     implicit val spark = SparkSessionProvider.spark
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(numPartitions.getOrElse(1)))
-    val (dur, results) = time(workload.genDataWithTiming(Seq(TableOptions(tableName, numPartitions, Seq.empty))))
+    val (dur, results) = time(workload.genDataWithTiming(Seq(TableOptions(tableName, None, numPartitions, Seq.empty))))
     results should have size 1
     results.head._1 shouldBe tableName
     results.head._2 should be > 0L

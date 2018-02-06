@@ -115,15 +115,19 @@ case class TpcDsDataGen(
 
   private[tpcds] def getOutputDataDir = s"$fsPrefix${output.getOrElse("tpcds-data")}"
 
+  private[tpcds] def mkPartitionStatement(tableName: String): String = {
+    tableOptions.find(_.name == tableName) match {
+      case Some(to) if to.partitionColumns.nonEmpty => s"PARTITIONED BY(${to.partitionColumns.mkString(", ")})"
+      case _ => ""
+    }
+  }
+
   /**
    * Function to create a table in spark. It reads the DDL script for each of the
    * tpc-ds table and executes it on Spark.
    */
   protected[tpcds] def createTable(tableName: String)(implicit spark: SparkSession): Unit = {
     log.error(s"Creating table $tableName...")
-//    spark.sql(s"DROP TABLE IF EXISTS $tableName")
-//    deleteTableFromDisk(tableName)
-
     val rs = getClass.getResourceAsStream(s"/tpcds/ddl/$tableName.sql")
     val sqlStmts = fromInputStream(rs)
       .mkString
@@ -131,8 +135,12 @@ case class TpcDsDataGen(
       .replace('\n', ' ')
       .replace("${TPCDS_GENDATA_DIR}", getOutputDataDir)
       .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat")
+      .replace("${PARTITIONEDBY_STATEMENT}", mkPartitionStatement(tableName))
       .split(";")
-    sqlStmts.map(spark.sql)
+    sqlStmts.map { sqlStmt =>
+      log.error(sqlStmt)
+      spark.sql(sqlStmt)
+    }
   }
 
   /**
@@ -235,7 +243,7 @@ case class TpcDsDataGen(
 
   private[tpcds] def genDataWithTiming(topts: Seq[TableOptions])
       (implicit spark: SparkSession, exSvc: ExSvc) = {
-    topts.map { topt =>
+    topts.filterNot(_.skipgen.getOrElse(false)).map { topt =>
       val (t, res) = time(genData(topt))
       (topt.name, t, res)
     }
