@@ -82,10 +82,10 @@ case class TpcDsWorkload(
       .filter(_.nonEmpty)
 
     if (queries.isEmpty) throw new Exception(s"No queries to run for $queryStream")
-    log.info(s"Running TPC-DS Query ${queryInfo.queryTemplate}")
+    log.error(s"Running TPC-DS Query ${queryInfo.queryTemplate}")
 
     queries.zipWithIndex.map { case (query, i) =>
-      log.info(s"Running query $i from ${queryInfo.queryTemplate}:\n$query")
+      log.error(s"Running query $i from ${queryInfo.queryTemplate}:\n$query")
       val (dur, result) = time(spark.sql(query).collect)
       TpcDsQueryStats(queryInfo.queryTemplate, queryInfo.queryNum, i, dur, result.length)
     }
