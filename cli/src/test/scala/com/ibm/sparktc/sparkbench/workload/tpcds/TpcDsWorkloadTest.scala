@@ -17,7 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.workload.tpcds
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
+import org.apache.hadoop.fs.{FileSystem, Path}
+
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{conf, tables}
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.time
 import org.scalatest.{FlatSpec, Matchers}
@@ -25,8 +27,12 @@ import org.scalatest.{FlatSpec, Matchers}
 class TpcDsWorkloadTest extends FlatSpec with Matchers {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
+  private val cwd = sys.props("user.dir")
+  private val queryAbsPath = s"$cwd/cli/src/test/resources/tpcds/queries/query_0.sql"
+
+  private val query0 = "/tpcds/queries/query_0.sql"
   private val confMapTest: Map[String, Any] = Map(
-    "querystream" -> "/tpcds/queries/query_0.sql"
+    "querystream" -> query0
   )
 
   private def mkWorkload: TpcDsWorkload = mkWorkload(confMapTest)
@@ -149,7 +155,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
 
   "TpcDsWorkload" should "extractQueries from a good file" in {
     val workload = mkWorkload
-    val queries = workload.extractQueries
+    val queries = workload.extractQueries()
     queries should have size 2
 
     queries.head.queryNum shouldBe 1
@@ -167,6 +173,21 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     //scalastyle:on magic.number
 
     q0queries = queries
+  }
+
+  it should "extractQueries from a good file on HDFS" in {
+    val hdfsDir = s"hdfs://localhost:9000/qgen${System.currentTimeMillis}"
+    val hdfsFile = s"$hdfsDir/query_0.sql"
+
+    val dstPath = new Path(s"$hdfsDir/query_0.sql")
+    val fs = FileSystem.get(dstPath.toUri, conf)
+    fs.copyFromLocalFile(new Path(queryAbsPath), dstPath)
+
+    val workload = mkWorkload(confMapTest + ("querystream" -> hdfsFile))
+    val queries = workload.extractQueries()
+    queries should have size 2
+    val hdfsPath = new Path(hdfsDir)
+    FileSystem.get(hdfsPath.toUri, conf).delete(hdfsPath, true)
   }
 
 //  import org.apache.spark.sql.SparkSession

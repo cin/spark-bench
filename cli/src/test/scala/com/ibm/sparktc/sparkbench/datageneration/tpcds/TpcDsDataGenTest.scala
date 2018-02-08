@@ -19,7 +19,7 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import java.util.concurrent.Executors.newFixedThreadPool
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{tables, syncCopy}
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import org.apache.hadoop.conf.Configuration
@@ -72,7 +72,6 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
   }
 
   it should "syncCopy files to HDFS" in {
-    val workload = mkWorkload
     val tmpFile = java.nio.file.Files.createTempFile("foo", "tmp")
     val dirString = "hdfs://localhost:9000/foo-tmp"
     val dstDir = new Path(dirString)
@@ -84,7 +83,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers {
       createdDir = true
     }
 
-    workload.syncCopy(tmpFile.toFile, dirString) shouldBe true
+    syncCopy(tmpFile.toFile, dirString) shouldBe true
 
     if (createdDir) dstFs.delete(dstDir, true)
   }

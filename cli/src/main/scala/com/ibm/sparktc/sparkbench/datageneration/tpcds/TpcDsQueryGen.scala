@@ -26,6 +26,7 @@ import scala.io.Source.fromFile
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.{getOrDefault, getOrThrowT, optionallyGet, runCmd, time}
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.syncCopy
 
 case class TpcDsQueryGenStats(res: Boolean, duration: Long)
 
@@ -70,7 +71,7 @@ case class TpcDsQueryGen(
 ) extends Workload {
   import TpcDsQueryGen._
 
-  private[tpcds] def mkCmd: Seq[String] = {
+  private[tpcds] def mkCmd(outputDir: String): Seq[String] = {
     val cmd = Seq(
       s"./dsqgen",
       "-sc", s"$tpcDsScale",
@@ -79,7 +80,7 @@ case class TpcDsQueryGen(
       "-rngseed", s"$tpcDsRngSeed",
       "-dir", s"../query_templates",
       "-input", s"../query_templates/templates.lst",
-      "-output_dir", output.get,
+      "-output_dir", outputDir,
       "-streams", s"$tpcDsStreams"
     )
     tpcDsCount.foldLeft(cmd) { case (acc, cnt) => acc ++ Seq("-count", s"$cnt") }
@@ -106,15 +107,21 @@ case class TpcDsQueryGen(
       bw.flush()
       bw.close()
       Files.move(newf.toPath, ff.toPath, REPLACE_EXISTING)
+      if (output.get.startsWith("hdfs://")) syncCopy(ff, output.get)
     case _ => () // do nothing if there are other non-sql files in this directory
   }
 
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
     import spark.sqlContext.implicits._
-    val f = new File(output.get)
-    if (!f.exists) f.mkdirs
+    val f = if (output.get.startsWith("hdfs://")) {
+      Files.createTempDirectory("dsqgen").toFile
+    } else {
+      val ff = new File(output.get)
+      if (!ff.exists) ff.mkdirs
+      ff
+    }
     log.debug(s"Outputting data to ${f.getAbsolutePath}")
-    val (dur, res) = time(runCmd(mkCmd, Some(s"$tpcDsKitDir/tools")))
+    val (dur, res) = time(runCmd(mkCmd(f.getAbsolutePath), Some(s"$tpcDsKitDir/tools")))
     mkSparkSqlCompliant(f)
     spark.sparkContext.parallelize(Seq(TpcDsQueryGenStats(res, dur))).toDF
   }

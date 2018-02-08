@@ -17,6 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
+import org.apache.hadoop.fs.{FileSystem, Path}
+
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.conf
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import org.scalatest.{FlatSpec, Matchers}
 
@@ -72,7 +75,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
 
   it should "mkCmd" in {
     val workload = mkWorkload
-    val cmd = workload.mkCmd
+    val cmd = workload.mkCmd(outputDir)
     val expected = Seq(
       s"./dsqgen",
       "-sc", "1",
@@ -89,7 +92,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
 
   it should "mkCmd with count" in {
     val workload = mkWorkload(confMapTest + ("tpcds-count" -> 5))
-    val cmd = workload.mkCmd
+    val cmd = workload.mkCmd(outputDir)
     val expected = Seq(
       s"./dsqgen",
       "-sc", "1",
@@ -130,5 +133,19 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
       case ff if ff.getName.startsWith("query_") => Some(ff.getName)
       case _ => None
     } should have size 4
+  }
+
+  it should "doWorkload with hdfs output" in {
+    val hdfsDir = s"hdfs://localhost:9000/qgen${System.currentTimeMillis}"
+    val workload = mkWorkload(confMapTest + ("output" -> hdfsDir))
+    val spark = SparkSessionProvider.spark
+    val df = workload.doWorkload(None, spark)
+    df.collect().head.getAs[Boolean](0) shouldBe true
+    df.show()
+    val path = new Path(s"$hdfsDir/query_0.sql")
+    val fs = FileSystem.get(path.toUri, conf)
+    fs.exists(path) shouldBe true
+    val hdfsPath = new Path(hdfsDir)
+    FileSystem.get(hdfsPath.toUri, conf).delete(hdfsPath, true)
   }
 }

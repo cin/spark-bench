@@ -29,13 +29,10 @@ import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService => Ex
 import scala.io.Source.fromInputStream
 import scala.util.Try
 
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, FileUtil, Path}
-
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{syncCopy, tables}
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 
@@ -78,17 +75,7 @@ case class TpcDsDataGen(
   ) extends Workload {
   import TpcDsDataGen._
 
-  private[tpcds] def syncCopy(file: File, outputDir: String)(implicit conf: Configuration) = {
-    val dstDir = if (file.isDirectory) new Path(outputDir, file.getName) else new Path(outputDir)
-    val dstFs = FileSystem.get(dstDir.toUri, conf)
-    // if just copying a file, make sure the directory exists
-    // if copying a directory, don't do this
-    if (!file.isDirectory && !dstFs.isDirectory(dstDir)) dstFs.mkdirs(dstDir)
-    FileUtil.copy(file, dstFs, dstDir, false, conf)
-  }
-
-  private[tpcds] def asyncCopy(file: File, tableName: String)
-      (implicit ec: ExSvc, conf: Configuration) = Future {
+  private[tpcds] def asyncCopy(file: File, tableName: String)(implicit ec: ExSvc) = Future {
     syncCopy(file, s"$getOutputDataDir/$tableName")
   }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
 
@@ -158,7 +145,6 @@ case class TpcDsDataGen(
     val files = f.listFiles
     if (files.nonEmpty) {
       implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(math.min(files.length, maxThreads)))
-      implicit val conf = new Configuration
       val futures = files.map { f => asyncCopy(f, extractTableName(f.getName)) }
       files.map(_.getName).zip(waitForFutures(futures)).map(TpcDsTableGenResults(_))
     } else Seq.empty
