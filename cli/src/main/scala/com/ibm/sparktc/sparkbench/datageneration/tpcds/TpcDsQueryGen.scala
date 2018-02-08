@@ -111,15 +111,24 @@ case class TpcDsQueryGen(
     case _ => () // do nothing if there are other non-sql files in this directory
   }
 
-  override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
-    import spark.sqlContext.implicits._
-    val f = if (output.get.startsWith("hdfs://")) {
+  /**
+    * If the output directory is an HDFS location, create a temporary directory to which
+    * dsqgen can write its output. Otherwise, ensure the output directory exists and create
+    * it if not.
+    */
+  private def mkOutputDir(): File = {
+    if (output.get.startsWith("hdfs://")) {
       Files.createTempDirectory("dsqgen").toFile
     } else {
-      val ff = new File(output.get)
-      if (!ff.exists) ff.mkdirs
-      ff
+      val f = new File(output.get)
+      if (!f.exists) f.mkdirs
+      f
     }
+  }
+
+  override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
+    import spark.sqlContext.implicits._
+    val f = mkOutputDir()
     log.debug(s"Outputting data to ${f.getAbsolutePath}")
     val (dur, res) = time(runCmd(mkCmd(f.getAbsolutePath), Some(s"$tpcDsKitDir/tools")))
     mkSparkSqlCompliant(f)

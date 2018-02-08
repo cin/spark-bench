@@ -45,7 +45,8 @@ object TpcDsWorkload extends WorkloadDefaults {
       getOrThrowT[String](m, "querystream"),
       getOrDefault[String](m, "dbname", "tpcds"),
       getOrDefault[Boolean](m, "createtemptables", false),
-      getOrDefault[Int](m, "parallelqueriestorun", 1)
+      getOrDefault[Int](m, "parallelqueriestorun", 1),
+      getOrDefault[Boolean](m, "explainqueries", false)
     )
   }
 }
@@ -56,7 +57,8 @@ case class TpcDsWorkload(
     queryStream: String,
     dbName: String,
     createTempTables: Boolean,
-    parallelQueriesToRun: Int
+    parallelQueriesToRun: Int,
+    explainQueries: Boolean
   ) extends Workload {
   import TpcDsWorkload._
 
@@ -82,10 +84,11 @@ case class TpcDsWorkload(
       .filter(_.nonEmpty)
 
     if (queries.isEmpty) throw new Exception(s"No queries to run for $queryStream")
-    log.error(s"Running TPC-DS Query ${queryInfo.queryTemplate}")
+    log.info(s"Running TPC-DS Query ${queryInfo.queryNum} - ${queryInfo.queryTemplate}")
 
     queries.zipWithIndex.map { case (query, i) =>
-      log.error(s"Running query $i from ${queryInfo.queryTemplate}:\n$query")
+      log.info(s"Running query ${queryInfo.queryNum}.$i from ${queryInfo.queryTemplate}:\n$query")
+      if (explainQueries) spark.sql(query).explain(true)
       val (dur, result) = time(spark.sql(query).collect)
       TpcDsQueryStats(queryInfo.queryTemplate, queryInfo.queryNum, i, dur, result.length)
     }
@@ -104,7 +107,9 @@ case class TpcDsWorkload(
     implicit val explicitlyDeclaredImplicitSpark: SparkSession = spark
     setup()
     val queries = extractQueries()
-    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(math.min(parallelQueriesToRun, queries.length)))
+    implicit val ec = ExecutionContext.fromExecutorService(
+      newFixedThreadPool(math.min(parallelQueriesToRun, queries.length))
+    )
     val queryStatsFutures = queries.map { queryInfo => Future(runQuery(queryInfo)) }
     val queryStats = waitForFutures(queryStatsFutures).flatten
     spark.createDataFrame(spark.sparkContext.parallelize(queryStats))
