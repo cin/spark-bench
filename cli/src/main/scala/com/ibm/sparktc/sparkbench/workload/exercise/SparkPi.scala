@@ -18,6 +18,7 @@
 package com.ibm.sparktc.sparkbench.workload.exercise
 
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.{getOrDefault, time}
+import com.ibm.sparktc.sparkbench.utils.SaveModes
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
@@ -42,6 +43,7 @@ object SparkPi extends WorkloadDefaults {
 
 case class SparkPi(input: Option[String] = None,
                     output: Option[String] = None,
+                    saveMode: String = SaveModes.error,
                     slices: Int
                   ) extends Workload {
 

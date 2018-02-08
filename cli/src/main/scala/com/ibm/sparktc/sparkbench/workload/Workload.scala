@@ -17,8 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.workload
 
+import com.ibm.sparktc.sparkbench.utils.{SaveModes, SparkBenchException}
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import com.ibm.sparktc.sparkbench.utils.SparkFuncs.{load, addConfToResults}
+import com.ibm.sparktc.sparkbench.utils.SparkFuncs._
 
 trait WorkloadDefaults {
   val name: String
@@ -28,6 +29,7 @@ trait WorkloadDefaults {
 trait Workload {
   val input: Option[String]
   val output: Option[String]
+  val saveMode: String
 
   /**
     *  Validate that the data set has a correct schema and fix if necessary.
@@ -43,6 +45,12 @@ trait Workload {
   def doWorkload(df: Option[DataFrame], sparkSession: SparkSession): DataFrame
 
   def run(spark: SparkSession): DataFrame = {
+
+    verifyOutput(output, saveMode, spark)
+    if(saveMode == SaveModes.append){
+      throw SparkBenchException("Save-mode \"append\" not available for workload results. " +
+        "Please use \"errorifexists\", \"ignore\", or \"overwrite\" instead.")
+    }
 
     val df = input.map { in =>
       val rawDF = load(spark, in)
