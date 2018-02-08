@@ -135,11 +135,11 @@ class GeneralFunctionsTest extends FlatSpec with Matchers with BeforeAndAfterEac
   }
 
   it should "runCmd work with different current working directory" in {
-    runCmd(Seq("ls", "-al", "tpcds-example.conf"), Some("examples")) shouldBe true
+    runCmd(Seq("ls", "-al", "minimal-example.conf"), Some("examples")) shouldBe true
   }
 
   it should "runCmd fail appropriately with different current working directory" in {
-    runCmd(Seq("ls", "-al", "tpcds-example.conf"), Some("notadir")) shouldBe false
+    runCmd(Seq("ls", "-al", "minimal-example.conf"), Some("notadir")) shouldBe false
   }
 
   it should "waitForFutures" in {

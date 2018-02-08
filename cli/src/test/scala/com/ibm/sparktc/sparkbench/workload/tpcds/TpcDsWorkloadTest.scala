@@ -25,7 +25,7 @@ import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.time
 import org.scalatest.{FlatSpec, Matchers}
 
 class TpcDsWorkloadTest extends FlatSpec with Matchers {
-  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
+//  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
   private val cwd = sys.props("user.dir")
   private val queryAbsPath = s"$cwd/cli/src/test/resources/tpcds/queries/query_0.sql"
@@ -179,7 +179,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     val hdfsDir = s"hdfs://localhost:9000/qgen${System.currentTimeMillis}"
     val hdfsFile = s"$hdfsDir/query_0.sql"
 
-    val dstPath = new Path(s"$hdfsDir/query_0.sql")
+    val dstPath = new Path(hdfsFile)
     val fs = FileSystem.get(dstPath.toUri, conf)
     fs.copyFromLocalFile(new Path(queryAbsPath), dstPath)
 

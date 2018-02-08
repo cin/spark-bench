@@ -17,10 +17,9 @@
 
 package com.ibm.sparktc.sparkbench.common.tpcds
 
-import java.io.{BufferedReader, File, FileNotFoundException, InputStreamReader}
+import java.io.{File, FileNotFoundException}
 
-import scala.io.BufferedSource
-import scala.io.Source.{fromFile, fromInputStream}
+import scala.io.Source.{createBufferedSource, fromFile, fromInputStream}
 import scala.util.Try
 
 import org.apache.hadoop.conf.Configuration
@@ -67,16 +66,16 @@ object TpcDsBase {
     FileUtil.copy(file, dstFs, dstDir, false, conf)
   }
 
-  // TODO: fix this!!! close handles!
+  private[tpcds] def loadFromHdfs(fn: String): Iterator[String] = {
+    val path = new Path(fn)
+    val fis = path.getFileSystem(conf).open(path)
+    createBufferedSource(fis, close = () => fis.close()).getLines()
+  }
+
   def loadFile(fn: String): Try[Iterator[String]] = {
     Try {
-      if (fn.startsWith("hdfs://")) {
-        val path = new Path(fn)
-        val fs = FileSystem.get(path.toUri, conf)
-        val fis = fs.open(path)
-        val br = new BufferedSource(fis, fis.available())
-        br.getLines()
-      } else fromFile(fn).getLines
+      if (fn.startsWith("hdfs://")) loadFromHdfs(fn)
+      else fromFile(fn).getLines
     }.recover {
       case _: FileNotFoundException =>
         log.warn(s"Failed to load file $fn from filesystem. Trying from resource")

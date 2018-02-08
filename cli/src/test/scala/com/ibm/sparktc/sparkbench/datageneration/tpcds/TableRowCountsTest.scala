@@ -46,6 +46,7 @@ class TableRowCountsTest extends FlatSpec with Matchers {
         case s if s == 10000 => exp.tenTB
         case s if s == 30000 => exp.thirtyTB
         case s if s == 100000 => exp.oneHundredTB
+        case s if s == 10 || s == 100 => 0L
       }
       actualCount shouldBe expectedCount
     }
