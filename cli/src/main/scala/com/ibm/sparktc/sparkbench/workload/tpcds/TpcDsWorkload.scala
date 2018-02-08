@@ -25,7 +25,7 @@ import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
-case class TpcDsQueryStats(queryName: String, queryNum: Int, queryIdx: Int, duration: Long, resultLengh: Int)
+case class TpcDsQueryStats(queryName: String, queryNum: Int, queryIdx: Int, duration: Long, resultLength: Int)
 case class TpcDsQueryInfo(queryNum: Int, streamNum: Int, queryTemplate: String, queries: Seq[String])
 
 trait QueryState
