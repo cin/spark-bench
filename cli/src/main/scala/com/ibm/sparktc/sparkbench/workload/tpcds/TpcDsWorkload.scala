@@ -42,6 +42,7 @@ object TpcDsWorkload extends WorkloadDefaults {
     TpcDsWorkload(
       optionallyGet(m, "input"),
       optionallyGet(m, "output"),
+      getOrDefault[String](m, "save-mode", "error"),
       getOrThrowT[String](m, "querystream"),
       getOrDefault[String](m, "dbname", "tpcds"),
       getOrDefault[Boolean](m, "createtemptables", false),
@@ -54,6 +55,7 @@ object TpcDsWorkload extends WorkloadDefaults {
 case class TpcDsWorkload(
     input: Option[String],
     output: Option[String],
+    saveMode: String,
     queryStream: String,
     dbName: String,
     createTempTables: Boolean,

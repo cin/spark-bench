@@ -235,6 +235,6 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     stats should have size 1
     stats.head.queryName shouldBe "query96.tpl"
     stats.head.duration shouldBe dur +- 1000L
-    stats.head.resultLengh shouldBe 1
+    stats.head.resultLength shouldBe 1
   }
 }

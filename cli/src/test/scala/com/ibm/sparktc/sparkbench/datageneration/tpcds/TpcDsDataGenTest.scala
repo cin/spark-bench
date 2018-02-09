@@ -45,7 +45,6 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     "dbname" -> dbName,
     "warehouse" -> "spark-warehouse",
     "clean" -> false,
-    "fsprefix" -> "hdfs://localhost:9000/",
     "tpcds-kit-dir" -> kitDir,
     "tpcds-scale" -> 1,
     "tpcds-rngseed" -> 8,
@@ -72,7 +71,6 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     workload.dbName shouldBe "testdb"
     workload.warehouse shouldBe "spark-warehouse"
     workload.clean shouldBe false
-    workload.fsPrefix shouldBe "hdfs://localhost:9000/"
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsScale shouldBe 1
     workload.tpcDsRngSeed shouldBe 8

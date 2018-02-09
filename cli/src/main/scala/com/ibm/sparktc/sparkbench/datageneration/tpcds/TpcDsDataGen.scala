@@ -34,6 +34,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{syncCopy, tables}
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
+import com.ibm.sparktc.sparkbench.utils.SaveModes
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 
 object TpcDsDataGen extends WorkloadDefaults {
@@ -50,33 +51,37 @@ object TpcDsDataGen extends WorkloadDefaults {
   def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
     optionallyGet(m, "input"),
     optionallyGet(m, "output"),
+    getOrDefault[String](m, "save-mode", SaveModes.error),
     getOrDefault[String](m, "dbname", "tpcds"),
     getOrDefault[String](m, "warehouse", "spark-warehouse"),
     getOrDefault[Boolean](m, "clean", false),
-    getOrDefault[String](m, "fsprefix", "hdfs:///"),
     TableOptions(m),
     getOrThrowT[String](m, "tpcds-kit-dir"),
     getOrDefault[Int](m, "tpcds-scale", scaleDefault),
-    getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault)
+    getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault),
+    getOrDefault[String](m, "tpcds-output", "tpcds-data"),
+    getOrThrowT[String](m, "tpcds-data-output")
   )
 }
 
 case class TpcDsDataGen(
     input: Option[String],
     output: Option[String],
+    saveMode: String,
     dbName: String,
     warehouse: String,
     clean: Boolean,
-    fsPrefix: String,
     tableOptions: Seq[TableOptions],
     tpcDsKitDir: String,
     tpcDsScale: Int,
-    tpcDsRngSeed: Int
+    tpcDsRngSeed: Int,
+    tpcDsOutput: String,
+    tpcDsDataOutput: String
   ) extends Workload {
   import TpcDsDataGen._
 
   private[tpcds] def asyncCopy(file: File, tableName: String)(implicit ec: ExSvc) = Future {
-    syncCopy(file, s"$getOutputDataDir/$tableName")
+    syncCopy(file, s"$tpcDsDataOutput/$tableName")
   }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
 
   protected[tpcds] def createDatabase()(implicit spark: SparkSession): Unit = {
@@ -100,8 +105,6 @@ case class TpcDsDataGen(
   private[tpcds] def deleteTableFromDisk(tableName: String): Unit =
     deleteLocalDir(s"$warehouse/${dbName.toLowerCase}.db/$tableName")
 
-  private[tpcds] def getOutputDataDir = s"$fsPrefix${output.getOrElse("tpcds-data")}"
-
   private[tpcds] def mkPartitionStatement(tableName: String): String = {
     tableOptions.find(_.name == tableName) match {
       case Some(to) if to.partitionColumns.nonEmpty => s"PARTITIONED BY(${to.partitionColumns.mkString(", ")})"
@@ -120,7 +123,7 @@ case class TpcDsDataGen(
       .mkString
       .stripLineEnd
       .replace('\n', ' ')
-      .replace("${TPCDS_GENDATA_DIR}", getOutputDataDir)
+      .replace("${TPCDS_GENDATA_DIR}", tpcDsDataOutput)
       .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat")
       .replace("${PARTITIONEDBY_STATEMENT}", mkPartitionStatement(tableName))
       .split(";")
@@ -167,11 +170,10 @@ case class TpcDsDataGen(
     }
   }
 
-  private[tpcds] val outputPath: String = output match {
-    case Some(d) if d.nonEmpty && d.endsWith("/") => d
-    case Some(d) if d.nonEmpty => d + "/"
-    case Some(d) => d
-    case _ => ""
+  private[tpcds] val outputPath: String = {
+    if (tpcDsOutput.nonEmpty && tpcDsOutput.endsWith("/")) tpcDsOutput
+    else if (tpcDsOutput.nonEmpty) tpcDsOutput + "/"
+    else tpcDsOutput
   }
 
   private[tpcds] def validateRowCount(table: String)(implicit spark: SparkSession): (String, Long) = {

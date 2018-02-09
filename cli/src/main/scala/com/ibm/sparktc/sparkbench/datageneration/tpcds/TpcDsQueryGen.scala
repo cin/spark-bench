@@ -24,6 +24,7 @@ import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import scala.io.Source.fromFile
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
+
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.{getOrDefault, getOrThrowT, optionallyGet, runCmd, time}
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.syncCopy
@@ -50,24 +51,28 @@ object TpcDsQueryGen extends WorkloadDefaults {
   def apply(m: Map[String, Any]): Workload = TpcDsQueryGen(
     optionallyGet(m, "input"),
     optionallyGet(m, "output"),
+    getOrDefault[String](m, "save-mode", "error"),
     getOrThrowT[String](m, "tpcds-kit-dir"),
     getOrDefault[Int](m, "tpcds-scale", scaleDefault),
     getOrDefault[Int](m, "tpcds-streams", streamsDefault),
     optionallyGet[Int](m, "tpcds-count"),
     getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault),
-    getOrDefault[String](m, "tpcds-dialect", "spark")
+    getOrDefault[String](m, "tpcds-dialect", "spark"),
+    getOrThrowT[String](m, "tpcds-query-output")
   )
 }
 
 case class TpcDsQueryGen(
   input: Option[String],
   output: Option[String],
+  saveMode: String,
   tpcDsKitDir: String,
   tpcDsScale: Int,
   tpcDsStreams: Int,
   tpcDsCount: Option[Int],
   tpcDsRngSeed: Int,
-  tpcDsDialect: String
+  tpcDsDialect: String,
+  tpcDsQueryOutput: String
 ) extends Workload {
   import TpcDsQueryGen._
 
@@ -107,7 +112,7 @@ case class TpcDsQueryGen(
       bw.flush()
       bw.close()
       Files.move(newf.toPath, ff.toPath, REPLACE_EXISTING)
-      if (output.get.startsWith("hdfs://")) syncCopy(ff, output.get)
+      if (tpcDsQueryOutput.startsWith("hdfs://")) syncCopy(ff, tpcDsQueryOutput)
     case _ => () // do nothing if there are other non-sql files in this directory
   }
 
@@ -117,10 +122,10 @@ case class TpcDsQueryGen(
     * it if not.
     */
   private def mkOutputDir(): File = {
-    if (output.get.startsWith("hdfs://")) {
+    if (tpcDsQueryOutput.startsWith("hdfs://")) {
       Files.createTempDirectory("dsqgen").toFile
     } else {
-      val f = new File(output.get)
+      val f = new File(tpcDsQueryOutput)
       if (!f.exists) f.mkdirs
       f
     }
