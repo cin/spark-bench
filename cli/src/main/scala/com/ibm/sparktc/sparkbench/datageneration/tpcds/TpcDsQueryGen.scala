@@ -27,9 +27,14 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.{getOrDefault, getOrThrowT, optionallyGet, runCmd, time}
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.syncCopy
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{createTempDir, mkKitDir, syncCopy}
 
 case class TpcDsQueryGenStats(res: Boolean, duration: Long)
+
+/**
+  * NOTE: everything in this workload is being run on the driver. If this ever changes, be sure
+  * to call `mkKitDir` in a part of the workload that is being run on an executor.
+  */
 
 object TpcDsQueryGen extends WorkloadDefaults {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
@@ -52,7 +57,7 @@ object TpcDsQueryGen extends WorkloadDefaults {
     optionallyGet(m, "input"),
     optionallyGet(m, "output"),
     getOrDefault[String](m, "save-mode", "error"),
-    getOrThrowT[String](m, "tpcds-kit-dir"),
+    mkKitDir(getOrThrowT[String](m, "tpcds-kit-dir")),
     getOrDefault[Int](m, "tpcds-scale", scaleDefault),
     getOrDefault[Int](m, "tpcds-streams", streamsDefault),
     optionallyGet[Int](m, "tpcds-count"),
@@ -76,11 +81,12 @@ case class TpcDsQueryGen(
 ) extends Workload {
   import TpcDsQueryGen._
 
+  private val outputtingToHdfs = tpcDsQueryOutput.startsWith("hdfs://")
+
   private[tpcds] def mkCmd(outputDir: String): Seq[String] = {
     val cmd = Seq(
       s"./dsqgen",
       "-sc", s"$tpcDsScale",
-      "-distributions", s"tpcds.idx",
       "-dialect", tpcDsDialect,
       "-rngseed", s"$tpcDsRngSeed",
       "-dir", s"../query_templates",
@@ -112,7 +118,7 @@ case class TpcDsQueryGen(
       bw.flush()
       bw.close()
       Files.move(newf.toPath, ff.toPath, REPLACE_EXISTING)
-      if (tpcDsQueryOutput.startsWith("hdfs://")) syncCopy(ff, tpcDsQueryOutput)
+      if (outputtingToHdfs) syncCopy(ff, tpcDsQueryOutput)
     case _ => () // do nothing if there are other non-sql files in this directory
   }
 
@@ -122,11 +128,11 @@ case class TpcDsQueryGen(
     * it if not.
     */
   private def mkOutputDir(): File = {
-    if (tpcDsQueryOutput.startsWith("hdfs://")) {
-      Files.createTempDirectory("dsqgen").toFile
+    if (outputtingToHdfs) {
+      createTempDir(tpcDsKitDir, "dsqgen")
     } else {
       val f = new File(tpcDsQueryOutput)
-      if (!f.exists) f.mkdirs
+      f.mkdirs()
       f
     }
   }
@@ -134,9 +140,11 @@ case class TpcDsQueryGen(
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
     import spark.sqlContext.implicits._
     val f = mkOutputDir()
-    log.debug(s"Outputting data to ${f.getAbsolutePath}")
-    val (dur, res) = time(runCmd(mkCmd(f.getAbsolutePath), Some(s"$tpcDsKitDir/tools")))
-    mkSparkSqlCompliant(f)
+    log.debug(s"Outputting data to ${f.getCanonicalPath}")
+    val outputDir = if (outputtingToHdfs) s"../${f.getName}" else f.getCanonicalPath
+    val (dur, res) = time(runCmd(mkCmd(s"$outputDir"), Some(s"$tpcDsKitDir/tools")))
+    if (res) mkSparkSqlCompliant(f)
+    else throw new RuntimeException("Query generation failed.")
     spark.sparkContext.parallelize(Seq(TpcDsQueryGenStats(res, dur))).toDF
   }
 }

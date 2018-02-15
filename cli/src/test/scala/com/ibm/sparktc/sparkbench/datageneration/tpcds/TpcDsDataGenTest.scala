@@ -19,11 +19,13 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import java.util.concurrent.Executors.newFixedThreadPool
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.syncCopy
-import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
-import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
+
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{createTempDir, deleteLocalDir, syncCopy}
+import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
+import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
+
 import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 
 import scala.concurrent.ExecutionContext
@@ -41,7 +43,8 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   }"
 
   private val confMapTest: Map[String, Any] = Map(
-    "output" -> "test-output",
+    "tpcds-data-output" -> "hdfs://localhost:9000/test-output",
+    "tpcds-dsdgen-output" -> "test-output",
     "dbname" -> dbName,
     "warehouse" -> "spark-warehouse",
     "clean" -> false,
@@ -52,12 +55,13 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   )
 
   override protected def beforeAll(): Unit = {
-    val warehouseDir = s"$cwd/spark-warehouse/$dbName.db"
-    val f = new java.io.File(warehouseDir)
-    if (f.exists()) {
-      val workload = mkWorkload
-      workload.deleteLocalDir(warehouseDir)
-    }
+    val f = new java.io.File(s"$cwd/spark-warehouse/$dbName.db")
+    if (f.exists()) deleteLocalDir(f.getCanonicalPath)
+  }
+
+  override protected def afterAll(): Unit = {
+    val f = new java.io.File(s"$kitDir/test-output")
+    if (f.exists()) deleteLocalDir(f.getCanonicalPath)
   }
 
   private def mkWorkload: TpcDsDataGen = mkWorkload(confMapTest)
@@ -67,13 +71,12 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   "TpcDsDataGenTest" should "initialize properly given sane inputs" in {
     val workload = mkWorkload
     workload.input should not be defined
-    workload.output shouldBe Some("test-output")
     workload.dbName shouldBe "testdb"
     workload.warehouse shouldBe "spark-warehouse"
-    workload.clean shouldBe false
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsScale shouldBe 1
     workload.tpcDsRngSeed shouldBe 8
+    workload.tpcDsDataOutput shouldBe "hdfs://localhost:9000/test-output"
     workload.tableOptions should have size 24
     // TableOptionsTest validations proper parsing of table-options
   }
@@ -98,8 +101,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   it should "asyncCopy" in {
     implicit val conf = new Configuration
     val workload = mkWorkload
-    val outputDir = workload.getOutputDataDir
-    val dstDir = new Path(outputDir)
+    val dstDir = new Path(workload.dsdgenOutputPath)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
     val tmpFile = java.nio.file.Files.createTempFile("foo", "tmp")
 
@@ -114,21 +116,23 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     val results = waitForFutures(Seq(f))
     results.foreach(_ shouldBe true)
 
-    val dstFn = new Path(s"$outputDir/foo", tmpFile.toFile.getName)
-    val dstFs1 = FileSystem.get(dstDir.toUri, conf)
+    val dstFn = new Path(s"${workload.tpcDsDataOutput}/foo", tmpFile.toFile.getName)
+    val dstFs1 = dstFn.getFileSystem(conf)
     dstFs1.exists(dstFn) shouldBe true
-    if (createdDir) dstFs.delete(dstDir, true)
+    if (createdDir) {
+      dstFs.delete(dstDir, true)
+      dstFs1.delete(dstFn, true)
+    }
   }
 
   it should "delete local directories" in {
-    val dir = java.nio.file.Files.createTempDirectory("foo")
-    val dirName = dir.toFile.getAbsolutePath
+    val dir = createTempDir(namePrefix = "foo")
+    val dirName = dir.getCanonicalPath
 
     val f = new java.io.File(dirName)
     f.isDirectory shouldBe true
 
-    val workload = mkWorkload
-    workload.deleteLocalDir(dirName)
+    deleteLocalDir(dirName)
 
     val f1 = new java.io.File(dirName)
     f1.exists shouldBe false
@@ -136,20 +140,18 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   }
 
   it should "get the right output data dir when kit dir is set" in {
-    val workload = mkWorkload
-    workload.getOutputDataDir shouldBe "hdfs://localhost:9000/test-output"
+    mkWorkload.dsdgenOutputPath shouldBe "test-output/"
   }
 
   it should "mkCmd without partitions" in {
     val workload = mkWorkload
     val cmd = workload.mkCmd(TableOptions("foo", None, None, Seq.empty), 0, "test-output")
     val expected = Seq(
-      s"$kitDir/tools/dsdgen",
-      "-sc", "1",
-      "-distributions", s"$kitDir/tools/tpcds.idx",
+      s"./dsdgen",
+      "-scale", "1",
       "-rngseed", "8",
       "-table", "foo",
-      "-dir", "test-output"
+      "-dir", "../test-output"
     )
     cmd shouldBe expected
   }
@@ -158,12 +160,11 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     val workload = mkWorkload
     val cmd = workload.mkCmd(TableOptions("foo", None, Some(8), Seq.empty), 2, "test-output") // scalastyle:ignore
     val expected = Seq(
-      s"$kitDir/tools/dsdgen",
-      "-sc", "1",
-      "-distributions", s"$kitDir/tools/tpcds.idx",
+      s"./dsdgen",
+      "-scale", "1",
       "-rngseed", "8",
       "-table", "foo",
-      "-dir", "test-output",
+      "-dir", "../test-output",
       "-child", "2",
       "-parallel", "8"
     )
@@ -176,24 +177,24 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     workload.mkPartitionStatement("call_center") shouldBe ""
   }
 
-  it should "outputPath without a trailing slash" in {
+  it should "dsdgenOutputPath without a trailing slash" in {
     val workload = mkWorkload
-    workload.outputPath shouldBe "test-output/"
+    workload.dsdgenOutputPath shouldBe "test-output/"
   }
 
-  it should "outputPath with a trailing slash" in {
-    val workload = mkWorkload(confMapTest + ("output" -> "test-output/"))
-    workload.outputPath shouldBe "test-output/"
+  it should "dsdgenOutputPath with a trailing slash" in {
+    val workload = mkWorkload(confMapTest + ("tpcds-dsdgen-output" -> "test-output/"))
+    workload.dsdgenOutputPath shouldBe "test-output/"
   }
 
-  it should "outputPath with an empty output path" in {
-    val workload = mkWorkload(confMapTest + ("output" -> ""))
-    workload.outputPath shouldBe ""
+  it should "dsdgenOutputPath with an empty output path" in {
+    val workload = mkWorkload(confMapTest + ("tpcds-dsdgen-output" -> ""))
+    workload.dsdgenOutputPath shouldBe ""
   }
 
-  it should "outputPath with no output" in {
-    val workload = mkWorkload(confMapTest - "output")
-    workload.outputPath shouldBe ""
+  it should "dsdgenOutputPath with no output" in {
+    val workload = mkWorkload(confMapTest - "tpcds-dsdgen-output")
+    workload.dsdgenOutputPath shouldBe "tpcds-data/"
   }
 
   it should "validateResults successfully" in {
@@ -340,13 +341,12 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
 //    val tables = spark.sql("show tables").collect
 //    tables.find(_.getAs[String]("tableName") == tableName) shouldBe defined
 //  }
-
   private def cleanupOutput(workload: TpcDsDataGen): Unit = {
-    val hdfsDataDir = workload.getOutputDataDir
+    val hdfsDataDir = workload.dsdgenOutputPath
     val dstDir = new Path(hdfsDataDir)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
     dstFs.delete(dstDir, true)
-    workload.deleteLocalDir(workload.outputPath)
+    deleteLocalDir(workload.dsdgenOutputPath)
   }
 
   private def genDataTest(tableName: String, numPartitions: Option[Int]): Unit = {
@@ -387,31 +387,32 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     workload.validateRowCount(tableName)
 
     spark.sql(s"DROP DATABASE IF EXISTS $dbName CASCADE")
-    workload.deleteTableFromDisk(tableName)
   }
 
-  it should "genData using the TPC-DS kit with no partitioning" in {
-    genDataTest("call_center", None)
-  }
+  /*
+    it should "genData using the TPC-DS kit with no partitioning" in {
+      genDataTest("call_center", None)
+    }
 
-  it should "genData using the TPC-DS kit with partitioning" in {
-    genDataTest("inventory", Some(10)) // scalastyle:ignore
-  }
+    it should "genData using the TPC-DS kit with partitioning" in {
+      genDataTest("inventory", Some(10)) // scalastyle:ignore
+    }
 
-  it should "genData using the TPC-DS kit for promotion" in {
-    genDataTest("promotion", None)
-  }
+    it should "genData using the TPC-DS kit for promotion" in {
+      genDataTest("promotion", None)
+    }
 
-  it should "cleanup output" in {
-    cleanupOutput(mkWorkload)
-  }
+    it should "cleanup output" in {
+      cleanupOutput(mkWorkload)
+    }
 
-//  it should "doWorkload" in {
-//    val workload = mkWorkload(confMapTest + ("clean" -> true))
-//    val spark = SparkSessionProvider.spark
-//    workload.doWorkload(None, spark).show(tables.length)
-//  }
+  //  it should "doWorkload" in {
+  //    val workload = mkWorkload(confMapTest + ("clean" -> true))
+  //    val spark = SparkSessionProvider.spark
+  //    workload.doWorkload(None, spark).show(tables.length)
+  //  }
 
+  */
   it should "cleanup output when done" in {
     cleanupOutput(mkWorkload)
   }

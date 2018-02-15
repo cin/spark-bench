@@ -19,7 +19,7 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import org.apache.hadoop.fs.{FileSystem, Path}
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.conf
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{conf, createTempDir}
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import org.scalatest.{FlatSpec, Matchers}
 
@@ -32,11 +32,11 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
     }
   }"
 
-  private val outputPath = java.nio.file.Files.createTempDirectory("qgen")
-  private val outputDir = outputPath.toFile.getAbsolutePath
+  private val outputPath = createTempDir(kitDir, namePrefix = "qgen")
+  private val outputDir = outputPath.getName
 
   private val confMapTest: Map[String, Any] = Map(
-    "output" -> outputDir,
+    "tpcds-query-output" -> outputDir,
     "tpcds-kit-dir" -> kitDir,
     "tpcds-scale" -> 1,
     "tpcds-streams" -> 1,
@@ -50,8 +50,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
   "TpcDsQueryGen" should "initialize properly" in {
     val workload = mkWorkload
     workload.input should not be defined
-    workload.output shouldBe Some(outputDir)
-    workload.tpcDsKitDir shouldBe kitDir
+    workload.tpcDsQueryOutput shouldBe outputDir
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsScale shouldBe 1
     workload.tpcDsRngSeed shouldBe 8
@@ -63,8 +62,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
   it should "initialize properly given counts" in {
     val workload = mkWorkload(confMapTest + ("tpcds-count" -> 5))
     workload.input should not be defined
-    workload.output shouldBe Some(outputDir)
-    workload.tpcDsKitDir shouldBe kitDir
+    workload.tpcDsQueryOutput shouldBe outputDir
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsScale shouldBe 1
     workload.tpcDsRngSeed shouldBe 8
@@ -79,7 +77,6 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
     val expected = Seq(
       s"./dsqgen",
       "-sc", "1",
-      "-distributions", s"tpcds.idx",
       "-dialect", "spark",
       "-rngseed", "8",
       "-dir", s"../query_templates",
@@ -96,7 +93,6 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
     val expected = Seq(
       s"./dsqgen",
       "-sc", "1",
-      "-distributions", s"tpcds.idx",
       "-dialect", "spark",
       "-rngseed", "8",
       "-dir", s"../query_templates",
@@ -137,7 +133,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
 
   it should "doWorkload with hdfs output" in {
     val hdfsDir = s"hdfs://localhost:9000/qgen${System.currentTimeMillis}"
-    val workload = mkWorkload(confMapTest + ("output" -> hdfsDir))
+    val workload = mkWorkload(confMapTest + ("tpcds-query-output" -> hdfsDir))
     val spark = SparkSessionProvider.spark
     val df = workload.doWorkload(None, spark)
     df.collect().head.getAs[Boolean](0) shouldBe true

@@ -27,12 +27,11 @@ import java.util.concurrent.Executors.newFixedThreadPool
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService => ExSvc, Future}
 import scala.io.Source.fromInputStream
-import scala.util.Try
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{syncCopy, tables}
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase._
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 import com.ibm.sparktc.sparkbench.utils.SaveModes
 import com.ibm.sparktc.sparkbench.workload.{Workload, WorkloadDefaults}
@@ -54,12 +53,11 @@ object TpcDsDataGen extends WorkloadDefaults {
     getOrDefault[String](m, "save-mode", SaveModes.error),
     getOrDefault[String](m, "dbname", "tpcds"),
     getOrDefault[String](m, "warehouse", "spark-warehouse"),
-    getOrDefault[Boolean](m, "clean", false),
     TableOptions(m),
     getOrThrowT[String](m, "tpcds-kit-dir"),
     getOrDefault[Int](m, "tpcds-scale", scaleDefault),
     getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault),
-    getOrDefault[String](m, "tpcds-output", "tpcds-data"),
+    getOrDefault[String](m, "tpcds-dsdgen-output", "tpcds-data"), // relative to the kitDir
     getOrThrowT[String](m, "tpcds-data-output")
   )
 }
@@ -70,12 +68,11 @@ case class TpcDsDataGen(
     saveMode: String,
     dbName: String,
     warehouse: String,
-    clean: Boolean,
     tableOptions: Seq[TableOptions],
     tpcDsKitDir: String,
     tpcDsScale: Int,
     tpcDsRngSeed: Int,
-    tpcDsOutput: String,
+    tpcDsDsdgenOutput: String,
     tpcDsDataOutput: String
   ) extends Workload {
   import TpcDsDataGen._
@@ -90,21 +87,6 @@ case class TpcDsDataGen(
     spark.sql(s"USE $dbName")
   }
 
-  private[tpcds] def deleteLocalDir(dirName: String): Unit = Try {
-    log.debug(s"Deleting local directory: $dirName")
-    val f = new File(dirName)
-    if (f.isDirectory) {
-      f.listFiles.foreach {
-        case ff if ff.isDirectory => deleteLocalDir(ff.getAbsolutePath)
-        case ff => ff.delete
-      }
-      f.delete
-    }
-  }.recover { case e: Throwable => log.error(s"Failed to cleanup $dirName", e) }
-
-  private[tpcds] def deleteTableFromDisk(tableName: String): Unit =
-    deleteLocalDir(s"$warehouse/${dbName.toLowerCase}.db/$tableName")
-
   private[tpcds] def mkPartitionStatement(tableName: String): String = {
     tableOptions.find(_.name == tableName) match {
       case Some(to) if to.partitionColumns.nonEmpty => s"PARTITIONED BY(${to.partitionColumns.mkString(", ")})"
@@ -117,7 +99,7 @@ case class TpcDsDataGen(
    * tpc-ds table and executes it on Spark.
    */
   protected[tpcds] def createTable(tableName: String)(implicit spark: SparkSession): Unit = {
-    log.error(s"Creating table $tableName...")
+    log.info(s"Creating table $tableName...")
     val rs = getClass.getResourceAsStream(s"/tpcds/ddl/$tableName.sql")
     val sqlStmts = fromInputStream(rs)
       .mkString
@@ -128,7 +110,7 @@ case class TpcDsDataGen(
       .replace("${PARTITIONEDBY_STATEMENT}", mkPartitionStatement(tableName))
       .split(";")
     sqlStmts.map { sqlStmt =>
-      log.error(sqlStmt)
+      log.info(sqlStmt)
       spark.sql(sqlStmt)
     }
   }
@@ -155,12 +137,11 @@ case class TpcDsDataGen(
 
   private[tpcds] def mkCmd(topt: TableOptions, child: Int, outputDir: String) = {
     val cmd = Seq(
-      s"$tpcDsKitDir/tools/dsdgen",
-      "-sc", s"$tpcDsScale",
-      "-distributions", s"$tpcDsKitDir/tools/tpcds.idx",
+      s"./dsdgen",
+      "-scale", s"$tpcDsScale",
       "-rngseed", s"$tpcDsRngSeed",
       "-table", topt.name,
-      "-dir", outputDir
+      "-dir", s"../$outputDir"
     )
     topt.partitions.foldLeft(cmd) { case (acc, partitions) =>
       acc ++ Seq(
@@ -168,12 +149,6 @@ case class TpcDsDataGen(
         "-parallel", s"$partitions"
       )
     }
-  }
-
-  private[tpcds] val outputPath: String = {
-    if (tpcDsOutput.nonEmpty && tpcDsOutput.endsWith("/")) tpcDsOutput
-    else if (tpcDsOutput.nonEmpty) tpcDsOutput + "/"
-    else tpcDsOutput
   }
 
   private[tpcds] def validateRowCount(table: String)(implicit spark: SparkSession): (String, Long) = {
@@ -190,7 +165,7 @@ case class TpcDsDataGen(
   }
 
   private[tpcds] def validateResults(results: Seq[TpcDsTableGenResults])(implicit spark: SparkSession): Unit = {
-    results.foreach { i => log.error(i.toString) }
+    results.foreach { i => log.info(i.toString) }
     if (results.isEmpty) {
       throw new RuntimeException("Data generation failed for tpcds. Check the executor logs for details.")
     } else {
@@ -207,24 +182,24 @@ case class TpcDsDataGen(
     }
   }
 
+  private[tpcds] val dsdgenOutputPath: String = {
+    if (tpcDsDsdgenOutput.nonEmpty && tpcDsDsdgenOutput.endsWith("/")) tpcDsDsdgenOutput
+    else if (tpcDsDsdgenOutput.nonEmpty) tpcDsDsdgenOutput + "/"
+    else tpcDsDsdgenOutput
+  }
+
   private def genData(topt: TableOptions, child: Int): Seq[TpcDsTableGenResults] = {
-    val outputDir = s"$outputPath${topt.name}$child"
-    try {
-      val f = new File(outputDir)
-      if (!f.exists) f.mkdirs
-      log.debug(s"Outputting data to ${f.getAbsolutePath}")
-      if (runCmd(mkCmd(topt, child, outputDir))) copyToHdfs(f)
-      else Seq.empty[TpcDsTableGenResults]
-    } catch { case e: Throwable =>
-      log.error(s"Failed to handle partition #$child", e)
-      Seq.empty[TpcDsTableGenResults]
-    } finally {
-      deleteLocalDir(outputDir)
-    }
+    val kitDir = mkKitDir(tpcDsKitDir)
+    val outputDir = s"$dsdgenOutputPath${topt.name}$child"
+    val f = new File(s"$kitDir/$outputDir")
+    f.mkdirs()
+    if (runCmd(mkCmd(topt, child, outputDir), Some(s"$kitDir/tools"))) copyToHdfs(f)
+    else throw new RuntimeException(s"Data generation failed for $topt, $child")
   }
 
   private def genData(topt: TableOptions)
       (implicit spark: SparkSession, exSvc: ExSvc): Future[RDD[Seq[TpcDsTableGenResults]]] = Future {
+    log.info(s"Generating data for $topt")
     val numPartitions = topt.partitions.getOrElse(1)
     spark.sparkContext.parallelize(1 to numPartitions, numPartitions).map(genData(topt, _))
   }
@@ -238,15 +213,10 @@ case class TpcDsDataGen(
   }
 
   private def genData()(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableGenStats] = {
-    try {
-      val seqOfRdds = genDataWithTiming(tableOptions)
-      val rdds = waitForFutures(seqOfRdds.map(_._3))
-      validateResults(rdds.flatMap(_.collect).flatten)
-      seqOfRdds.map(TpcDsTableGenStats(_))
-    } catch { case e: Throwable =>
-      log.error("Failed to generate data for TPC-DS", e)
-      Seq.empty[TpcDsTableGenStats]
-    }
+    val seqOfRdds = genDataWithTiming(tableOptions)
+    val rdds = waitForFutures(seqOfRdds.map(_._3))
+    validateResults(rdds.flatMap(_.collect).flatten)
+    seqOfRdds.map(TpcDsTableGenStats(_))
   }
 
   private def addRowCountsToStats(

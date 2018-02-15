@@ -17,6 +17,8 @@
 
 package com.ibm.sparktc.sparkbench.common.tpcds
 
+import java.io.File
+
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.conf
 
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -66,5 +68,19 @@ class TpcDsBaseTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     val lines = TpcDsBase.loadFile(hdfsFile).get.toArray
     lines(idxToTest) shouldBe stringAtIndex
     lines should have size 94
+  }
+
+  it should "copy tpcds-kit from HDFS" in {
+    val outputDir = TpcDsBase.mkKitDir("hdfs://localhost:9000/tpcds-kit")
+    val dir = new File(outputDir)
+    dir.isDirectory shouldBe true
+    val dsdgenFile = new File(s"$outputDir/tools/dsdgen")
+    dsdgenFile.exists shouldBe true
+    dsdgenFile.canExecute shouldBe true
+    val dsqgenFile = new File(s"$outputDir/tools/dsqgen")
+    dsqgenFile.exists shouldBe true
+    dsqgenFile.canExecute shouldBe true
+    val idxFile = new File(s"$outputDir/tools/tpcds.idx")
+    idxFile.exists shouldBe true
   }
 }

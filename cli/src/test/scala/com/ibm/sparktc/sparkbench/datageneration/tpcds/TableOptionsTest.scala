@@ -55,7 +55,7 @@ class TableOptionsTest extends FlatSpec with Matchers {
     bw.write(tableOptions)
     bw.flush()
     bw.close()
-    newf.getAbsolutePath
+    newf.getCanonicalPath
   }
 
   "TableOptions" should "initialize properly with sane inputs" in {
