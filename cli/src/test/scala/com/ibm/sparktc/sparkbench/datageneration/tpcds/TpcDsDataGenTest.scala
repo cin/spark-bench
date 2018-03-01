@@ -19,16 +19,17 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import java.util.concurrent.Executors.newFixedThreadPool
 
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService => ExSvc, Future}
+
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
+import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{createTempDir, deleteLocalDir, syncCopy}
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
-
-import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
-
-import scala.concurrent.ExecutionContext
 
 class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   private implicit val conf = new Configuration
@@ -45,6 +46,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   private val confMapTest: Map[String, Any] = Map(
     "tpcds-data-output" -> "hdfs://localhost:9000/test-output",
     "tpcds-dsdgen-output" -> "test-output",
+    "tpcds-dsdgen-validation-output" -> "test-validation-output",
     "dbname" -> dbName,
     "warehouse" -> "spark-warehouse",
     "clean" -> false,
@@ -57,11 +59,15 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   override protected def beforeAll(): Unit = {
     val f = new java.io.File(s"$cwd/spark-warehouse/$dbName.db")
     if (f.exists()) deleteLocalDir(f.getCanonicalPath)
+    val vf = new java.io.File(s"$cwd/spark-warehouse/${dbName}_validation.db")
+    if (vf.exists()) deleteLocalDir(vf.getCanonicalPath)
   }
 
   override protected def afterAll(): Unit = {
     val f = new java.io.File(s"$kitDir/test-output")
     if (f.exists()) deleteLocalDir(f.getCanonicalPath)
+    val vf = new java.io.File(s"$kitDir/test-validation-output")
+    if (vf.exists()) deleteLocalDir(vf.getCanonicalPath)
   }
 
   private def mkWorkload: TpcDsDataGen = mkWorkload(confMapTest)
@@ -112,7 +118,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     }
 
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(1))
-    val f = workload.asyncCopy(tmpFile.toFile, "foo")
+    val f = workload.asyncCopy(tmpFile.toFile, "foo", validationPhase = false)
     val results = waitForFutures(Seq(f))
     results.foreach(_ shouldBe true)
 
@@ -123,6 +129,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
       dstFs.delete(dstDir, true)
       dstFs1.delete(dstFn, true)
     }
+    ec.shutdown()
   }
 
   it should "delete local directories" in {
@@ -145,7 +152,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
 
   it should "mkCmd without partitions" in {
     val workload = mkWorkload
-    val cmd = workload.mkCmd(TableOptions("foo", None, None, Seq.empty), 0, "test-output")
+    val cmd = workload.mkCmd(TableOptions("foo", None, None, Seq.empty, Set.empty), 0, "test-output")
     val expected = Seq(
       s"./dsdgen",
       "-scale", "1",
@@ -156,9 +163,23 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     cmd shouldBe expected
   }
 
+  it should "mkCmd without partitions and validation" in {
+    val workload = mkWorkload
+    val cmd = workload.mkCmd(TableOptions("foo", None, None, Seq.empty, Set.empty), 0, "test-output", validate = true)
+    val expected = Seq(
+      s"./dsdgen",
+      "-scale", "1",
+      "-rngseed", "8",
+      "-table", "foo",
+      "-dir", "../test-output",
+      "-validate"
+    )
+    cmd shouldBe expected
+  }
+
   it should "mkCmd with partitions" in {
     val workload = mkWorkload
-    val cmd = workload.mkCmd(TableOptions("foo", None, Some(8), Seq.empty), 2, "test-output") // scalastyle:ignore
+    val cmd = workload.mkCmd(TableOptions("foo", None, Some(8), Seq.empty, Set.empty), 2, "test-output") // scalastyle:ignore
     val expected = Seq(
       s"./dsdgen",
       "-scale", "1",
@@ -167,6 +188,20 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
       "-dir", "../test-output",
       "-child", "2",
       "-parallel", "8"
+    )
+    cmd shouldBe expected
+  }
+
+  it should "mkCmd with partitions and validation" in {
+    val workload = mkWorkload
+    val cmd = workload.mkCmd(TableOptions("foo", None, Some(8), Seq.empty, Set.empty), 2, "test-output", validate = true) // scalastyle:ignore
+    val expected = Seq(
+      s"./dsdgen",
+      "-scale", "1",
+      "-rngseed", "8",
+      "-table", "foo",
+      "-dir", "../test-output",
+      "-validate"
     )
     cmd shouldBe expected
   }
@@ -195,6 +230,26 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   it should "dsdgenOutputPath with no output" in {
     val workload = mkWorkload(confMapTest - "tpcds-dsdgen-output")
     workload.dsdgenOutputPath shouldBe "tpcds-data/"
+  }
+
+  it should "dsdgenValidationOutputPath without a trailing slash" in {
+    val workload = mkWorkload
+    workload.dsdgenValidationOutputPath shouldBe "test-validation-output/"
+  }
+
+  it should "dsdgenValidationOutputPath with a trailing slash" in {
+    val workload = mkWorkload(confMapTest + ("tpcds-dsdgen-validation-output" -> "test-validation-output/"))
+    workload.dsdgenValidationOutputPath shouldBe "test-validation-output/"
+  }
+
+  it should "dsdgenValidationOutputPath with an empty output path" in {
+    val workload = mkWorkload(confMapTest + ("tpcds-dsdgen-validation-output" -> ""))
+    workload.dsdgenValidationOutputPath shouldBe ""
+  }
+
+  it should "dsdgenValidationOutputPath with no output" in {
+    val workload = mkWorkload(confMapTest - "tpcds-dsdgen-validation-output")
+    workload.dsdgenValidationOutputPath shouldBe "tpcds-validation-data/"
   }
 
   it should "validateResults successfully" in {
@@ -341,78 +396,117 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
 //    val tables = spark.sql("show tables").collect
 //    tables.find(_.getAs[String]("tableName") == tableName) shouldBe defined
 //  }
-  private def cleanupOutput(workload: TpcDsDataGen): Unit = {
-    val hdfsDataDir = workload.dsdgenOutputPath
-    val dstDir = new Path(hdfsDataDir)
+
+  private def delDir(dir: String): Unit = {
+    val dstDir = new Path(dir)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
     dstFs.delete(dstDir, true)
-    deleteLocalDir(workload.dsdgenOutputPath)
   }
 
-  private def genDataTest(tableName: String, numPartitions: Option[Int]): Unit = {
-    val workload = mkWorkload
+  private def cleanupOutput(workload: TpcDsDataGen): Unit = {
+    delDir(workload.dsdgenOutputPath)
+    delDir(workload.dsdgenValidationOutputPath)
+    delDir(workload.tpcDsDataOutput)
+    delDir(workload.tpcDsDataValidationOutput)
+  }
 
-    cleanupOutput(workload)
-
-    implicit val spark = SparkSessionProvider.spark
-    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(numPartitions.getOrElse(1)))
-    val (dur, results) = time(workload.genDataWithTiming(Seq(TableOptions(tableName, None, numPartitions, Seq.empty))))
+  private def validateBasicDataIntegrity(
+      topts: TableOptions,
+      dur: Long,
+      results: Seq[(String, Long, Future[RDD[Seq[TpcDsTableGenResults]]])])(implicit exSvc: ExSvc) = {
     results should have size 1
-    results.head._1 shouldBe tableName
+    results.head._1 shouldBe topts.name
     results.head._2 should be > 0L
     results.head._2 should be <= dur
     val r0 = waitForFutures(Seq(results.head._3))
     r0 should have size 1
     r0.foreach { r =>
       val r1 = r.collect.flatten
-      numPartitions match {
+      topts.partitions match {
         case Some(np) =>
           r1 should have size np
           r1.zipWithIndex.foreach { case (rr, i) =>
-            rr.table shouldBe s"${tableName}_${i + 1}_$np.dat"
+            rr.table shouldBe s"${topts.name}_${i + 1}_$np.dat"
             rr.res shouldBe true
           }
         case _ =>
           r1 should have size 1
-          r1.head.table shouldBe s"$tableName.dat"
+          r1.head.table shouldBe s"${topts.name}.dat"
           r1.head.res shouldBe true
       }
     }
+  }
+
+  private def validateTable(topts: TableOptions, workload: TpcDsDataGen)
+      (implicit spark: SparkSession, exSvc: ExSvc) = {
+    spark.sql(s"CREATE DATABASE ${workload.validationDbName}")
+    spark.sql(s"USE ${workload.validationDbName}")
+    val validationResults = workload.genDataWithTiming(Seq(topts), validationPhase = true)
+    validationResults should have size 1
+    validationResults.head._1 shouldBe topts.name
+    validationResults.head._2 should be >= 0L
+    val vr0 = waitForFutures(Seq(validationResults.head._3))
+    vr0 should have size 1
+    vr0.foreach { r =>
+      val r1 = r.collect().flatten
+      r1 should have size 1
+      r1.head.table shouldBe s"${topts.name}.vld"
+      r1.head.res shouldBe true
+    }
+    workload.validateTable(topts.name)
+    spark.sql(s"DROP DATABASE IF EXISTS ${workload.validationDbName} CASCADE")
+  }
+
+  private def genDataTest(topts: TableOptions): Unit = {
+    val workload = mkWorkload
+
+    cleanupOutput(workload)
+
+    implicit val spark = SparkSessionProvider.spark
+    implicit val ec = ExecutionContext.fromExecutorService(
+      newFixedThreadPool(topts.partitions.getOrElse(1))
+    )
+    val (dur, results) = time(workload.genDataWithTiming(Seq(topts), validationPhase = false))
+
+    validateBasicDataIntegrity(topts, dur, results)
 
     spark.sql(s"DROP DATABASE IF EXISTS $dbName CASCADE")
     spark.sql(s"CREATE DATABASE $dbName")
     spark.sql(s"USE $dbName")
 
-    workload.createTable(tableName)
-    workload.validateRowCount(tableName)
+    workload.createTable(topts.name, validationPhase = false)
+    workload.validateRowCount(topts.name)
+
+    validateTable(topts, workload)
 
     spark.sql(s"DROP DATABASE IF EXISTS $dbName CASCADE")
+    ec.shutdown()
   }
 
-  /*
-    it should "genData using the TPC-DS kit with no partitioning" in {
-      genDataTest("call_center", None)
-    }
+  it should "genData using the TPC-DS kit with no partitioning" in {
+    genDataTest(TableOptions("call_center", None, None, Seq.empty, Set("cc_call_center_sk")))
+  }
 
-    it should "genData using the TPC-DS kit with partitioning" in {
-      genDataTest("inventory", Some(10)) // scalastyle:ignore
-    }
+  it should "genData using the TPC-DS kit with partitioning" in {
+    genDataTest(TableOptions("inventory", None, Some(10), Seq.empty, // scalastyle:ignore
+      Set("inv_date_sk", "inv_item_sk", "inv_warehouse_sk")))
+  }
 
-    it should "genData using the TPC-DS kit for promotion" in {
-      genDataTest("promotion", None)
-    }
-
-    it should "cleanup output" in {
-      cleanupOutput(mkWorkload)
-    }
+//  it should "genData using the TPC-DS kit for promotion" in {
+//    genDataTest("promotion", None)
+//  }
+/*
+  it should "cleanup output" in {
+    cleanupOutput(mkWorkload)
+  }
 
   //  it should "doWorkload" in {
   //    val workload = mkWorkload(confMapTest + ("clean" -> true))
   //    val spark = SparkSessionProvider.spark
   //    workload.doWorkload(None, spark).show(tables.length)
   //  }
+*/
 
-  */
   it should "cleanup output when done" in {
     cleanupOutput(mkWorkload)
   }

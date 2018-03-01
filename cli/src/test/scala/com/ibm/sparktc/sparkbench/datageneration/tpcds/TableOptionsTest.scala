@@ -32,6 +32,8 @@ class TableOptionsTest extends FlatSpec with Matchers {
       a.partitions shouldBe expected.partitions
       a.partitionColumns should have size expected.partitionColumns.length
       a.partitionColumns shouldBe expected.partitionColumns
+      a.primaryKeys should have size expected.primaryKeys.size
+      a.primaryKeys shouldBe expected.primaryKeys
     }
   }
 
@@ -41,11 +43,16 @@ class TableOptionsTest extends FlatSpec with Matchers {
     val itPartitions = 3
 
     Seq(
-      TableOptions("call_center", None, None, Seq.empty),
-      TableOptions("catalog_sales", None, Some(csPartitions), Seq("cs_sold_date_sk")),
-      TableOptions("catalog_returns", Some(true), None, Seq("cr_returned_date_sk")),
-      TableOptions("inventory", None, Some(invPartitions), Seq("inv_date_sk", "test_partition_column")),
-      TableOptions("item", None, Some(itPartitions), Seq.empty)
+      TableOptions("call_center", None, None, Seq.empty,
+        Set("cc_call_center_sk")),
+      TableOptions("catalog_sales", None, Some(csPartitions), Seq("cs_sold_date_sk"),
+        Set("cs_item_sk", "cs_order_number")),
+      TableOptions("catalog_returns", Some(true), None, Seq("cr_returned_date_sk"),
+        Set("cr_item_sk", "cr_order_number")),
+      TableOptions("inventory", None, Some(invPartitions), Seq("inv_date_sk", "test_partition_column"),
+        Set("inv_date_sk", "inv_item_sk", "inv_warehouse_sk")),
+      TableOptions("item", None, Some(itPartitions), Seq.empty,
+        Set("i_item_sk"))
     )
   }
 
@@ -62,26 +69,31 @@ class TableOptionsTest extends FlatSpec with Matchers {
     val goodTableOptions =
       """[
         |  {
-        |    "name": "call_center"
+        |    "name": "call_center",
+        |    "primaryKeys": ["cc_call_center_sk"]
         |  },
         |  {
         |    "name": "catalog_returns",
         |    "skipgen": true,
-        |    "partitionColumns": ["cr_returned_date_sk"]
+        |    "partitionColumns": ["cr_returned_date_sk"],
+        |    "primaryKeys": ["cr_item_sk", "cr_order_number"]
         |  },
         |  {
         |    "name": "catalog_sales"
         |    "partitions": 10
-        |    "partitionColumns": ["cs_sold_date_sk"]
+        |    "partitionColumns": ["cs_sold_date_sk"],
+        |    "primaryKeys": ["cs_item_sk", "cs_order_number"]
         |  },
         |  {
         |    "name": "inventory"
         |    "partitions": 7
-        |    "partitionColumns": ["inv_date_sk", "test_partition_column"]
+        |    "partitionColumns": ["inv_date_sk", "test_partition_column"],
+        |    "primaryKeys": ["inv_date_sk", "inv_item_sk", "inv_warehouse_sk"]
         |  },
         |  {
         |    "name": "item",
-        |    "partitions": 3
+        |    "partitions": 3,
+        |    "primaryKeys": ["i_item_sk"]
         |  }
         |]""".stripMargin
 

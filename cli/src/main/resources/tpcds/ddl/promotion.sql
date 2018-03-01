@@ -1,3 +1,4 @@
+drop table if exists promotion_text;
 create table promotion_text
 (
     p_promo_sk                int,

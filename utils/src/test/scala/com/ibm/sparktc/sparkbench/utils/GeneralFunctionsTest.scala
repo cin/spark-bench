@@ -151,7 +151,7 @@ class GeneralFunctionsTest extends FlatSpec with Matchers with BeforeAndAfterEac
       }
     }
 
-    val (dur, res) = time(waitForFutures(futures, 4.seconds))
+    val (dur, res) = time(waitForFutures(futures, 4.seconds, shutdown = true))
     res should have size 3
     dur shouldBe 3000000000L +- 500000000L
   }

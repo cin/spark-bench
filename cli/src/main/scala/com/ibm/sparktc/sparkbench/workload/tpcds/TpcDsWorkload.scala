@@ -113,7 +113,7 @@ case class TpcDsWorkload(
       newFixedThreadPool(math.min(parallelQueriesToRun, queries.length))
     )
     val queryStatsFutures = queries.map { queryInfo => Future(runQuery(queryInfo)) }
-    val queryStats = waitForFutures(queryStatsFutures).flatten
+    val queryStats = waitForFutures(queryStatsFutures, shutdown = true).flatten
     spark.createDataFrame(spark.sparkContext.parallelize(queryStats))
   }
 }

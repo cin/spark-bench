@@ -46,20 +46,29 @@ object TpcDsDataGen extends WorkloadDefaults {
 
   private val PartitionedRgx = "([a-z_]+)_[0-9]+_[0-9]+.dat".r
   private val NonPartitionedRgx = "([a-z_]+).dat".r
+  private val ValidationRgx = "([a-z_]+).vld".r
 
-  def apply(m: Map[String, Any]): Workload = TpcDsDataGen(
-    optionallyGet(m, "input"),
-    optionallyGet(m, "output"),
-    getOrDefault[String](m, "save-mode", SaveModes.error),
-    getOrDefault[String](m, "dbname", "tpcds"),
-    getOrDefault[String](m, "warehouse", "spark-warehouse"),
-    TableOptions(m),
-    getOrThrowT[String](m, "tpcds-kit-dir"),
-    getOrDefault[Int](m, "tpcds-scale", scaleDefault),
-    getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault),
-    getOrDefault[String](m, "tpcds-dsdgen-output", "tpcds-data"), // relative to the kitDir
-    getOrThrowT[String](m, "tpcds-data-output")
-  )
+  private val TPCDSISDAFT = """^\s*create\s+table\s+([a-zA-Z0-9_]+)\s*\(\s*(.*)$""".r
+
+  def apply(m: Map[String, Any]): Workload = {
+    val dataOutput = getOrThrowT[String](m, "tpcds-data-output")
+    TpcDsDataGen(
+      optionallyGet(m, "input"),
+      optionallyGet(m, "output"),
+      getOrDefault[String](m, "save-mode", SaveModes.error),
+      getOrDefault[String](m, "dbname", "tpcds"),
+      getOrDefault[String](m, "warehouse", "spark-warehouse"),
+      TableOptions(m),
+      getOrThrowT[String](m, "tpcds-kit-dir"),
+      getOrDefault[Int](m, "tpcds-scale", scaleDefault),
+      getOrDefault[Int](m, "tpcds-rngseed", rngSeedDefault),
+      getOrDefault[String](m, "tpcds-dsdgen-output", "tpcds-data"), // relative to the kitDir
+      dataOutput,
+      getOrDefault[Boolean](m, "tpcds-dsdgen-validate", false),
+      getOrDefault[String](m, "tpcds-dsdgen-validation-output", "tpcds-validation-data"),
+      getOrDefault[String](m, "tpcds-data-validation-output", s"$dataOutput-validation")
+    )
+  }
 }
 
 case class TpcDsDataGen(
@@ -73,12 +82,15 @@ case class TpcDsDataGen(
     tpcDsScale: Int,
     tpcDsRngSeed: Int,
     tpcDsDsdgenOutput: String,
-    tpcDsDataOutput: String
+    tpcDsDataOutput: String,
+    tpcDsValidate: Boolean,
+    tpcDsDsdgenValidationOutput: String,
+    tpcDsDataValidationOutput: String
   ) extends Workload {
   import TpcDsDataGen._
 
-  private[tpcds] def asyncCopy(file: File, tableName: String)(implicit ec: ExSvc) = Future {
-    syncCopy(file, s"$tpcDsDataOutput/$tableName")
+  private[tpcds] def asyncCopy(file: File, tableName: String, validationPhase: Boolean)(implicit ec: ExSvc) = Future {
+    syncCopy(file, if (validationPhase) s"$tpcDsDataValidationOutput/$tableName" else s"$tpcDsDataOutput/$tableName")
   }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
 
   protected[tpcds] def createDatabase()(implicit spark: SparkSession): Unit = {
@@ -95,21 +107,41 @@ case class TpcDsDataGen(
   }
 
   /**
+    * For some reason, TPC-DS writes out an extra column when writing out validation rows.
+    * The best thing about this is that the TPC-DS spec says nothing about this column or
+    * what its expect output should be. In simple cases, it is the primary key. In multipart
+    * keys, there doesn't seem to be a rhyme or reason to its value.
+    *
+    * This hack reuses the existing DDL but inserts a dummy column.
+    */
+  private[tpcds] def tpcdsIsDaft(qstr: String): String = qstr match {
+    case TPCDSISDAFT(tablename, remainingDDL) => s"create table $tablename(dmy int, $remainingDDL"
+    case _ =>
+      log.error(s"Unable to match regex in validation DDL for create table string\n$qstr")
+      qstr
+  }
+
+  private def pruneValidationStmts(sqlStmts: Seq[String], validationPhase: Boolean): Seq[String] = {
+    if (validationPhase) Seq(sqlStmts.head, tpcdsIsDaft(sqlStmts(1)))
+    else sqlStmts
+  }
+
+  /**
    * Function to create a table in spark. It reads the DDL script for each of the
    * tpc-ds table and executes it on Spark.
    */
-  protected[tpcds] def createTable(tableName: String)(implicit spark: SparkSession): Unit = {
+  protected[tpcds] def createTable(tableName: String, validationPhase: Boolean)(implicit spark: SparkSession): Unit = {
     log.info(s"Creating table $tableName...")
     val rs = getClass.getResourceAsStream(s"/tpcds/ddl/$tableName.sql")
     val sqlStmts = fromInputStream(rs)
       .mkString
       .stripLineEnd
       .replace('\n', ' ')
-      .replace("${TPCDS_GENDATA_DIR}", tpcDsDataOutput)
+      .replace("${TPCDS_GENDATA_DIR}", if (validationPhase) tpcDsDataValidationOutput else tpcDsDataOutput)
       .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat")
       .replace("${PARTITIONEDBY_STATEMENT}", mkPartitionStatement(tableName))
       .split(";")
-    sqlStmts.map { sqlStmt =>
+    pruneValidationStmts(sqlStmts, validationPhase).foreach { sqlStmt =>
       log.info(sqlStmt)
       spark.sql(sqlStmt)
     }
@@ -123,19 +155,20 @@ case class TpcDsDataGen(
   private def extractTableName(fn: String): String = fn match {
     case PartitionedRgx(tn) => tn
     case NonPartitionedRgx(tn) => tn
+    case ValidationRgx(tn) => tn
     case _ => throw new RuntimeException(s"No regex patterns matched $fn")
   }
 
-  private def copyToHdfs(f: File): Seq[TpcDsTableGenResults] = {
+  private def copyToHdfs(f: File, validationPhase: Boolean): Seq[TpcDsTableGenResults] = {
     val files = f.listFiles
     if (files.nonEmpty) {
       implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(math.min(files.length, maxThreads)))
-      val futures = files.map { f => asyncCopy(f, extractTableName(f.getName)) }
+      val futures = files.map { f => asyncCopy(f, extractTableName(f.getName), validationPhase) }
       files.map(_.getName).zip(waitForFutures(futures)).map(TpcDsTableGenResults(_))
     } else Seq.empty
   }
 
-  private[tpcds] def mkCmd(topt: TableOptions, child: Int, outputDir: String) = {
+  private[tpcds] def mkCmd(topt: TableOptions, child: Int, outputDir: String, validate: Boolean = false) = {
     val cmd = Seq(
       s"./dsdgen",
       "-scale", s"$tpcDsScale",
@@ -143,11 +176,14 @@ case class TpcDsDataGen(
       "-table", topt.name,
       "-dir", s"../$outputDir"
     )
-    topt.partitions.foldLeft(cmd) { case (acc, partitions) =>
-      acc ++ Seq(
-        "-child", s"$child",
-        "-parallel", s"$partitions"
-      )
+    if (validate) cmd ++ Seq("-validate")
+    else {
+      topt.partitions.foldLeft(cmd) { case (acc, partitions) =>
+        acc ++ Seq(
+          "-child", s"$child",
+          "-parallel", s"$partitions"
+        )
+      }
     }
   }
 
@@ -182,38 +218,43 @@ case class TpcDsDataGen(
     }
   }
 
-  private[tpcds] val dsdgenOutputPath: String = {
-    if (tpcDsDsdgenOutput.nonEmpty && tpcDsDsdgenOutput.endsWith("/")) tpcDsDsdgenOutput
-    else if (tpcDsDsdgenOutput.nonEmpty) tpcDsDsdgenOutput + "/"
-    else tpcDsDsdgenOutput
+  private[tpcds] def fixupPath(path: String): String = {
+    if (path.nonEmpty && path.endsWith("/")) path
+    else if (path.nonEmpty) path + "/"
+    else path
   }
 
-  private def genData(topt: TableOptions, child: Int): Seq[TpcDsTableGenResults] = {
+  private[tpcds] val dsdgenOutputPath: String = fixupPath(tpcDsDsdgenOutput)
+  private[tpcds] val dsdgenValidationOutputPath: String = fixupPath(tpcDsDsdgenValidationOutput)
+
+  private def genData(topt: TableOptions, child: Int, validationPhase: Boolean): Seq[TpcDsTableGenResults] = {
     val kitDir = mkKitDir(tpcDsKitDir)
-    val outputDir = s"$dsdgenOutputPath${topt.name}$child"
+    val outputDir =
+      if (validationPhase) s"$dsdgenValidationOutputPath${topt.name}"
+      else s"$dsdgenOutputPath${topt.name}$child"
     val f = new File(s"$kitDir/$outputDir")
     f.mkdirs()
-    if (runCmd(mkCmd(topt, child, outputDir), Some(s"$kitDir/tools"))) copyToHdfs(f)
+    if (runCmd(mkCmd(topt, child, outputDir, validationPhase), Some(s"$kitDir/tools"))) copyToHdfs(f, validationPhase)
     else throw new RuntimeException(s"Data generation failed for $topt, $child")
   }
 
-  private def genData(topt: TableOptions)
+  private def genData(topt: TableOptions, validationPhase: Boolean)
       (implicit spark: SparkSession, exSvc: ExSvc): Future[RDD[Seq[TpcDsTableGenResults]]] = Future {
-    log.info(s"Generating data for $topt")
-    val numPartitions = topt.partitions.getOrElse(1)
-    spark.sparkContext.parallelize(1 to numPartitions, numPartitions).map(genData(topt, _))
+    log.info(s"Generating ${if (validationPhase) "validation " else " "}data for $topt")
+    val numPartitions = if (validationPhase) 1 else topt.partitions.getOrElse(1)
+    spark.sparkContext.parallelize(1 to numPartitions, numPartitions).map(genData(topt, _, validationPhase))
   }
 
-  private[tpcds] def genDataWithTiming(topts: Seq[TableOptions])
+  private[tpcds] def genDataWithTiming(topts: Seq[TableOptions], validationPhase: Boolean)
       (implicit spark: SparkSession, exSvc: ExSvc) = {
     topts.filterNot(_.skipgen.getOrElse(false)).map { topt =>
-      val (t, res) = time(genData(topt))
+      val (t, res) = time(genData(topt, validationPhase))
       (topt.name, t, res)
     }
   }
 
-  private def genData()(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableGenStats] = {
-    val seqOfRdds = genDataWithTiming(tableOptions)
+  private def genData(validationPhase: Boolean)(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableGenStats] = {
+    val seqOfRdds = genDataWithTiming(tableOptions, validationPhase)
     val rdds = waitForFutures(seqOfRdds.map(_._3))
     validateResults(rdds.flatMap(_.collect).flatten)
     seqOfRdds.map(TpcDsTableGenStats(_))
@@ -228,17 +269,42 @@ case class TpcDsDataGen(
     }
   }
 
+  private[tpcds] val validationDbName = s"${dbName}_validation"
+
+  private[tpcds] def validateTable(table: String)(implicit spark: SparkSession) = {
+    createTable(table, validationPhase = true)
+    val validationTable = spark.sql(s"select * from $validationDbName.${table}_text")
+    validationTable.cache()
+    val vtCount = validationTable.count()
+    val dataTable = spark.sql(s"select * from $dbName.$table")
+    val pks = tableOptions.find(_.name == table).map(_.primaryKeys).getOrElse(Set.empty).toSeq
+    val res = validationTable.join(dataTable, pks)
+    val joinCount = res.count()
+    if (joinCount != vtCount) log.error(s"Validation failed for $table. joinCount: $joinCount, expected: $vtCount")
+    validationTable.unpersist()
+  }
+
+  private def validateDatabase()(implicit spark: SparkSession, exSvc: ExSvc): Unit = {
+    genData(validationPhase = true)
+    spark.sql(s"CREATE DATABASE $validationDbName")
+    spark.sql(s"USE $validationDbName")
+    tables.foreach(validateTable)
+    spark.sql(s"DROP DATABASE $validationDbName")
+  }
+
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
     import spark.sqlContext.implicits._
     implicit val explicitlyDeclaredImplicitSpark = spark
     implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(tableOptions.length))
-    val stats = genData()
+    val stats = genData(validationPhase = false)
     createDatabase()
     // TODO: optimization possible here.
     // create the tables (convert from CSV to parquet) right after each table has been created
-    tables.foreach(createTable)
+    tables.foreach(createTable(_, validationPhase = false))
     val rowCounts = tables.map(validateRowCount)
     val statsWithRowCounts = addRowCountsToStats(stats, rowCounts)
+    validateDatabase()
+    ec.shutdown()
     spark.sparkContext.parallelize(statsWithRowCounts).toDF
   }
 }

@@ -112,8 +112,10 @@ object GeneralFunctions {
     }
   }.isSuccess
 
-  def waitForFutures[T](futures: Seq[Future[T]], duration: Duration = Duration.Inf)(implicit ec: ExSvc): Seq[T] = {
+  def waitForFutures[T](
+      futures: Seq[Future[T]], duration: Duration = Duration.Inf, shutdown: Boolean = false)
+      (implicit ec: ExSvc): Seq[T] = {
     try Await.result(Future.sequence(futures), duration)
-    finally ec.shutdown()
+    finally if (shutdown) ec.shutdown()
   }
 }
