@@ -84,7 +84,8 @@ lazy val cli = project
     libraryDependencies ++= otherCompileDeps,
     libraryDependencies ++= testDeps,
     libraryDependencies ++= typesafe,
-    libraryDependencies ++= breezeDeps
+    libraryDependencies ++= breezeDeps,
+    libraryDependencies ++= jsonCreation
   )
   .dependsOn(utils % "compile->compile;test->test")
   .aggregate(utils)

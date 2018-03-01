@@ -1,0 +1,88 @@
+[
+  {
+    "name": "call_center"
+  },
+  {
+    "name": "catalog_page"
+  },
+  {
+    "name": "catalog_returns",
+    "skipgen": true,
+    "partitionColumns": ["cr_returned_date_sk"]
+  },
+  {
+    "name": "catalog_sales",
+    "partitions": 100,
+    "partitionColumns": ["cs_sold_date_sk"]
+  },
+  {
+    "name": "customer"
+  },
+  {
+    "name": "customer_address"
+  },
+  {
+    "name": "customer_demographics"
+  },
+  {
+    "name": "date_dim"
+  },
+  {
+    "name": "income_band"
+  },
+  {
+    "name": "inventory",
+    "partitions": 100,
+    "partitionColumns": ["inv_date_sk"]
+  },
+  {
+    "name": "item"
+  },
+  {
+    "name": "household_demographics"
+  },
+  {
+    "name": "promotion"
+  },
+  {
+    "name": "reason"
+  },
+  {
+    "name": "ship_mode"
+  },
+  {
+    "name": "store"
+  },
+  {
+    "name": "store_returns",
+    "skipgen": true,
+    "partitionColumns": ["sr_returned_date_sk"]
+  },
+  {
+    "name": "store_sales",
+    "partitions": 100,
+    "partitionColumns": ["ss_sold_date_sk"]
+  },
+  {
+    "name": "time_dim"
+  },
+  {
+    "name": "warehouse"
+  },
+  {
+    "name": "web_page"
+  },
+  {
+    "name": "web_returns",
+    "skipgen": true,
+    "partitionColumns": ["wr_returned_date_sk"]
+  },
+  {
+    "name": "web_sales",
+    "partitions": 100,
+    "partitionColumns": ["ws_sold_date_sk"]
+  },
+  {
+    "name": "web_site"
+  }
+]

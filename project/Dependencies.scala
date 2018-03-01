@@ -28,16 +28,19 @@ object Dependencies {
   val sparkDeps = Seq(
     "org.apache.spark" %% "spark-core"  % sparkVersion % "provided",
     "org.apache.spark" %% "spark-mllib" % sparkVersion % "provided",
-    "org.apache.spark" %% "spark-sql"   % sparkVersion % "provided"
+    "org.apache.spark" %% "spark-sql"   % sparkVersion % "provided",
+    "com.databricks"   %% "spark-avro"  % "4.0.0"
   )
 
   val breezeDeps = Seq(
-    "org.scalanlp" % "breeze_2.11" % "0.13.2"
+    "org.scalanlp" %% "breeze" % "0.13.2"
   )
 
   val jsonCreation = Seq(
+    //    "io.spray" % "spray-json_2.11" % "1.3.4",
     "com.softwaremill.sttp" %% "json4s" % "1.1.3",
-    "com.softwaremill.sttp" %% "core" % "1.1.3"
+    "com.softwaremill.sttp" %% "core" % "1.1.3",
+    "org.json4s" %% "json4s-native" % "3.5.3"
   )
 
   val typesafe = Seq(

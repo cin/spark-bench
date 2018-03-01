@@ -17,6 +17,7 @@
 
 package com.ibm.sparktc.sparkbench.cli
 
+import com.ibm.sparktc.sparkbench.utils.SaveModes
 import com.ibm.sparktc.sparkbench.utils.TypesafeAccessories.configToMapStringSeqAny
 
 import scala.collection.JavaConverters._
@@ -40,6 +41,7 @@ object Configurator {
     val workloadConfs = sparkContextConfs.map { sparkContextConf => {
         MultiSuiteRunConfig(
           suitesParallel = Try(sparkContextConf.getBoolean("suites-parallel")).getOrElse(false),
+          enableHive = Try(sparkContextConf.getBoolean("enable-hive")).getOrElse(false),
           suites = getConfigListByName("workload-suites", sparkContextConf).map(parseSuite)
         )
       }
@@ -57,6 +59,7 @@ object Configurator {
     val parallel: Boolean = Try(config.getBoolean("parallel")).getOrElse(false)
     val repeat: Int = Try(config.getInt("repeat")).getOrElse(1)
     val output: Option[String] = Try(config.getString("benchmark-output")).toOption
+    val saveMode: String = Try(config.getString("save-mode")).getOrElse(SaveModes.error)
     val workloads: Seq[Map[String, Seq[Any]]]  = getConfigListByName("workloads", config).map(configToMapStringSeqAny)
 
     Suite.build(
@@ -64,6 +67,7 @@ object Configurator {
       descr,
       repeat,
       parallel,
+      saveMode,
       output
     )
   }

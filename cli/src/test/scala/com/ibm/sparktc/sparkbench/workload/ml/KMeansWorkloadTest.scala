@@ -21,7 +21,7 @@ import java.io.File
 
 import com.holdenkarau.spark.testing.Utils
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
-import com.ibm.sparktc.sparkbench.workload.ml.KMeansWorkload
+import com.ibm.sparktc.sparkbench.utils.SaveModes
 import com.ibm.sparktc.sparkbench.utils.SparkFuncs.{load, writeToDisk}
 import org.apache.spark.mllib.util.KMeansDataGenerator
 import org.apache.spark.rdd.RDD
@@ -50,7 +50,7 @@ class KMeansWorkloadTest extends FlatSpec with Matchers with BeforeAndAfterEach 
 
   "reconcileSchema" should "handle a StringType schema and turn it into a DoubleType Schema" in {
     val df2Disk = makeDataFrame()
-    writeToDisk(fileName, df2Disk, spark, Some("csv"))
+    writeToDisk(fileName, SaveModes.error, df2Disk, spark, Some("csv"))
     val conf = Map("name" -> "kmeans", "input" -> fileName)
     val work = KMeansWorkload(conf)
     val df = load(spark, fileName)
@@ -61,7 +61,7 @@ class KMeansWorkloadTest extends FlatSpec with Matchers with BeforeAndAfterEach 
   "The load function" should "parse the DataFrame it's given into an RDD[Vector]" in {
     val df = makeDataFrame()
     val conf = Map("name" -> "kmeans", "input" -> "")
-    val work = KMeansWorkload(conf)
+    val work = KMeansWorkload(conf).asInstanceOf[KMeansWorkload]
     val ddf = work.reconcileSchema(df)
     val (_, rdd) = work.loadToCache(ddf, spark)
     rdd.first()
@@ -69,9 +69,9 @@ class KMeansWorkloadTest extends FlatSpec with Matchers with BeforeAndAfterEach 
 
   it should "work even when we've pulled the data from disk" in {
     val df2Disk = makeDataFrame()
-    writeToDisk(fileName, df2Disk, spark, Some("csv"))
+    writeToDisk(fileName, SaveModes.error, df2Disk, spark, Some("csv"))
     val conf = Map("name" -> "kmeans", "input" -> fileName)
-    val work = KMeansWorkload(conf)
+    val work = KMeansWorkload(conf).asInstanceOf[KMeansWorkload]
     val df = load(spark, fileName)
     val ddf = work.reconcileSchema(df)
     val (_, rdd) = work.loadToCache(ddf, spark)
@@ -80,7 +80,7 @@ class KMeansWorkloadTest extends FlatSpec with Matchers with BeforeAndAfterEach 
 
   "doWorkload" should "work" in {
     val df2Disk = makeDataFrame()
-    writeToDisk(fileName, df2Disk, spark, Some("csv"))
+    writeToDisk(fileName, SaveModes.error, df2Disk, spark, Some("csv"))
     val conf = Map("name" -> "kmeans", "input" -> fileName)
     val work = KMeansWorkload(conf)
     val df = load(spark, fileName)

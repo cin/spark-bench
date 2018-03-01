@@ -19,47 +19,32 @@ package com.ibm.sparktc.sparkbench.utils
 
 import java.io.StringWriter
 
-import scala.util.{Failure, Random, Success, Try}
-
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContextExecutorService => ExSvc, Future}
+import scala.sys.process._
+import scala.util.{Failure, Success, Try}
 
 object GeneralFunctions {
+  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
-  val any2Long = (a: Any) => {
-    a.asInstanceOf[Number].longValue()
+  val any2Long: (Any) => Long = {
+    case x: Number => x.longValue
+    case x => x.toString.toLong
   }
 
-  def getOrDefault[A](
-                       map: Map[String, Any],
-                       name: String, default: A,
-                       func: (Any) => A = {(any: Any) => any.asInstanceOf[A]}
-                     ): A = {
+  private def defaultFn[A](any: Any): A = any.asInstanceOf[A]
 
-    val any = map.get(name) match {
-      case None => return default
-      case Some(a) => a
-    }
-
-    Try(func(any)) match {
-      case Success(b) => b
-      case Failure(_) => default
-    }
+  private[utils] def tryWithDefault[A](a: Any, default: A, func: Any => A): A = Try(func(a)) match {
+    case Success(b) => b
+    case Failure(_) => default
   }
 
-  def getOrDefaultOpt[A](
-                       opt: Option[Any],
-                       default: A,
-                       func: (Any) => A = {(any: Any) => any.asInstanceOf[A]}
-                     ): A = {
+  def getOrDefaultOpt[A](opt: Option[Any], default: A, func: Any => A = defaultFn[A](_: Any)): A = {
+    opt.map(tryWithDefault(_, default, func)).getOrElse(default)
+  }
 
-    val any = opt match {
-      case None => return default
-      case Some(a) => a
-    }
-
-    Try(func(any)) match {
-      case Success(b) => b
-      case Failure(_) => default
-    }
+  def getOrDefault[A](map: Map[String, Any], name: String, default: A, func: Any => A = defaultFn[A](_: Any)): A = {
+    getOrDefaultOpt(map.get(name), default, func)
   }
 
   def time[R](block: => R): (Long, R) = {
@@ -93,10 +78,10 @@ object GeneralFunctions {
   }
 
   def getOrThrow(m: Map[String, Any], key: String): Any = getOrThrow(m.get(key))
+  def getOrThrowT[T](m: Map[String, Any], key: String): T = getOrThrow(m.get(key)).asInstanceOf[T]
 
-  def optionallyGet[A](m: Map[String, Any], key: String): Option[A] = m.get(key) match {
-    case None => None
-    case Some(any) => Some(any.asInstanceOf[A])
+  def optionallyGet[A](m: Map[String, Any], key: String): Option[A] = m.get(key).map { any =>
+    any.asInstanceOf[A]
   }
 
   def stringifyStackTrace(e: Throwable): String = {
@@ -107,9 +92,28 @@ object GeneralFunctions {
     sw.toString
   }
 
-  def randomLong(max: Long): Long = {
-    val start = 0L
-    (start + (Random.nextDouble() * (max - start) + start)).toLong
+  private[utils] def mkProcess(cmd: Seq[String], cwd: Option[String]): ProcessBuilder = cwd match {
+    case Some(d) => Process(cmd, new java.io.File(d))
+    case _ => Process(cmd)
   }
 
+  // runCmd runs the command and checks the stderr to see if an error occurred
+  // normally the return value of the command would indicate a failure but that's not how tpc-ds rolls
+  def runCmd(cmd: Seq[String], cwd: Option[String] = None): Boolean = Try {
+    log.debug(s"runCmd: ${cmd.mkString(" ")}")
+    val (stdout, stderr) = (new StringBuilder, new StringBuilder)
+    mkProcess(cmd, cwd) ! ProcessLogger(stdout.append(_), stderr.append(_)) match {
+      case ret if ret == 0 && !stderr.toString.contains("ERROR") =>
+        log.debug(s"stdout: $stdout\nstderr: $stderr")
+      case ret =>
+        val msg = s"command failed: $cmd\n\nreturn code: $ret\n\nstderr\n${stderr.toString}"
+        log.error(msg)
+        throw new RuntimeException(msg)
+    }
+  }.isSuccess
+
+  def waitForFutures[T](futures: Seq[Future[T]], duration: Duration = Duration.Inf)(implicit ec: ExSvc): Seq[T] = {
+    try Await.result(Future.sequence(futures), duration)
+    finally ec.shutdown()
+  }
 }

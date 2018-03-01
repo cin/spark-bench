@@ -26,6 +26,7 @@ import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.types._
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
+import com.ibm.sparktc.sparkbench.utils.SaveModes
 
 /*
  * (C) Copyright IBM Corp. 2015 
@@ -55,9 +56,10 @@ object KMeansWorkload extends WorkloadDefaults {
   val maxIteration: Int = 2
   val seed: Long = 127L
 
-  def apply(m: Map[String, Any]) = new KMeansWorkload(
+  def apply(m: Map[String, Any]): Workload = new KMeansWorkload(
     input = Some(getOrThrow(m, "input").asInstanceOf[String]),
     output = getOrDefault[Option[String]](m, "workloadresultsoutputdir", None),
+    saveMode = getOrDefault[String](m, "save-mode", SaveModes.error),
     k = getOrDefault[Int](m, "k", numOfClusters),
     seed = getOrDefault(m, "seed", seed, any2Long),
     maxIterations = getOrDefault[Int](m, "maxiterations", maxIteration))
@@ -66,6 +68,7 @@ object KMeansWorkload extends WorkloadDefaults {
 
 case class KMeansWorkload(input: Option[String],
                           output: Option[String],
+                          saveMode: String,
                           k: Int,
                           seed: Long,
                           maxIterations: Int) extends Workload {
@@ -76,13 +79,8 @@ case class KMeansWorkload(input: Option[String],
     val (loadtime, data) = loadToCache(df.get, spark) // Should fail loudly if df == None
     val (trainTime, model) = train(data, spark)
     val (testTime, _) = test(model, data, spark)
-    val (saveTime, _) = output match {
-      case Some(_) => save(data, model, spark)
-      case _ => (null, Unit)
-    }
-
-    val total = loadtime + trainTime + testTime
-                + (if (saveTime == null) 0L else saveTime.asInstanceOf[Long])
+    val saveTime = output.foldLeft(0L) { case (_, _) => save(data, model, spark) }
+    val total = loadtime + trainTime + testTime + saveTime
 
     val schema = StructType(
       List(
@@ -133,17 +131,17 @@ case class KMeansWorkload(input: Option[String],
     model.computeCost(df)
   }
 
-  def save(ds: RDD[Vector], model: KMeansModel, spark: SparkSession): (Long, Unit) = {
-    val res = time {
+  def save(ds: RDD[Vector], model: KMeansModel, spark: SparkSession): Long = {
+    val (duration, _) = time {
       val vectorsAndClusterIdx: RDD[(String, Int)] = ds.map { point =>
         val prediction = model.predict(point)
         (point.toString, prediction)
       }
       import spark.implicits._
       // Already performed the match one level up so these are guaranteed to be Some(something)
-      writeToDisk(output.get, vectorsAndClusterIdx.toDF(), spark = spark)
+      writeToDisk(output.get, saveMode, vectorsAndClusterIdx.toDF(), spark = spark)
     }
     ds.unpersist()
-    res
+    duration
   }
 }

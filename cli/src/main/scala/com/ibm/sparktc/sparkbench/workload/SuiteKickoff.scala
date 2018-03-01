@@ -17,7 +17,7 @@
 
 package com.ibm.sparktc.sparkbench.workload
 
-import com.ibm.sparktc.sparkbench.utils.SparkFuncs.{writeToDisk, addConfToResults}
+import com.ibm.sparktc.sparkbench.utils.SparkFuncs._
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions.{col, lit}
 
@@ -56,8 +56,11 @@ import scala.collection.parallel.ForkJoinTaskSupport
 */
 
 object SuiteKickoff {
+  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
   def run(s: Suite, spark: SparkSession): Unit = {
+    verifyOutput(s.benchmarkOutput, s.saveMode, spark)
+
     // Translate the maps into runnable workloads
     val workloads: Seq[Workload] = s.workloadConfigs.map(ConfigCreator.mapToConf)
 
@@ -77,12 +80,12 @@ object SuiteKickoff {
 
     // Ah, see, here's where we're joining that series of one-row DFs
     val singleDF = joinDataFrames(dataframes, spark)
-    s.description.foreach(println)
+    s.description.foreach(log.info)
     // And now we're going to curry in the results
     val plusSparkConf = addConfToResults(singleDF, strSparkConfs)
     val plusDescription = addConfToResults(plusSparkConf, Map("description" -> s.description)).coalesce(1)
     // And write to disk. We're done with this suite!
-    if(s.benchmarkOutput.nonEmpty) writeToDisk(s.benchmarkOutput.get, plusDescription, spark)
+    if(s.benchmarkOutput.nonEmpty) writeToDisk(s.benchmarkOutput.get, s.saveMode, plusDescription, spark)
   }
 
   private def runParallel(workloadConfigs: Seq[Workload], spark: SparkSession): Seq[DataFrame] = {
@@ -96,22 +99,23 @@ object SuiteKickoff {
   }
 
   private def joinDataFrames(seq: Seq[DataFrame], spark: SparkSession): DataFrame = {
-    if (seq.length == 1) return seq.head
+    if (seq.length == 1) seq.head
+    else {
+      val seqOfColNames = seq.map(_.columns.toSet)
+      val allTheColumns = seqOfColNames.foldLeft(Set[String]())(_ ++ _)
 
-    val seqOfColNames = seq.map(_.columns.toSet)
-    val allTheColumns = seqOfColNames.foldLeft(Set[String]())(_ ++ _)
-
-    def expr(myCols: Set[String], allCols: Set[String]) = {
-      allCols.toList.map {
-        case x if myCols.contains(x) => col(x)
-        case x => lit(null).as(x)
+      def expr(myCols: Set[String], allCols: Set[String]) = {
+        allCols.toList.map {
+          case x if myCols.contains(x) => col(x)
+          case x => lit(null).as(x)
+        }
       }
+
+      val seqFixedDfs = seq.map(df => df.select(expr(df.columns.toSet, allTheColumns): _*))
+
+      // Folding left across this sequence should be fine because each DF should only have 1 row
+      // Nevarr Evarr do this to legit dataframes that are all like big and stuff
+      seqFixedDfs.foldLeft(spark.createDataFrame(spark.sparkContext.emptyRDD[Row], seqFixedDfs.head.schema))(_ union _)
     }
-
-    val seqFixedDfs = seq.map(df  => df.select(expr(df.columns.toSet, allTheColumns):_*))
-
-    // Folding left across this sequence should be fine because each DF should only have 1 row
-    // Nevarr Evarr do this to legit dataframes that are all like big and stuff
-    seqFixedDfs.foldLeft(spark.createDataFrame(spark.sparkContext.emptyRDD[Row], seqFixedDfs.head.schema))( _ union _ )
   }
 }
