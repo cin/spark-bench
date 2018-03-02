@@ -410,6 +410,9 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     delDir(workload.tpcDsDataValidationOutput)
   }
 
+  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
+  private val SalesTable = """([a-z]+)_sales""".r
+
   private def validateBasicDataIntegrity(
       topts: TableOptions,
       dur: Long,
@@ -424,10 +427,25 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
       val r1 = r.collect.flatten
       topts.partitions match {
         case Some(np) =>
-          r1 should have size np
-          r1.zipWithIndex.foreach { case (rr, i) =>
-            rr.table shouldBe s"${topts.name}_${i + 1}_$np.dat"
-            rr.res shouldBe true
+//          r1 should have size np
+          if (r1.length != np)
+            log.error(s"Unexpected number of partitions produced: ${r1.length} != $np\n${r1.mkString(",")}")
+          topts.name match {
+            case SalesTable(base) =>
+              val (sales, returns) = r1.partition(_.table.contains("_sales_"))
+              sales.zipWithIndex.foreach { case (rr, i) =>
+                rr.table shouldBe s"${base}_sales_${i + 1}_$np.dat"
+                rr.res shouldBe true
+              }
+              returns.zipWithIndex.foreach { case (rr, i) =>
+                rr.table shouldBe s"${base}_returns_${i + 1}_$np.dat"
+                rr.res shouldBe true
+              }
+            case _ =>
+              r1.zipWithIndex.foreach { case (rr, i) =>
+                rr.table shouldBe s"${topts.name}_${i + 1}_$np.dat"
+                rr.res shouldBe true
+              }
           }
         case _ =>
           r1 should have size 1
@@ -449,11 +467,23 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     vr0 should have size 1
     vr0.foreach { r =>
       val r1 = r.collect().flatten
-      r1 should have size 1
-      r1.head.table shouldBe s"${topts.name}.vld"
-      r1.head.res shouldBe true
+      topts.name match {
+        case SalesTable(base) =>
+          val (sales, returns) = r1.partition(_.table.contains("_sales"))
+          sales should have size 1
+          sales.head.table shouldBe s"${base}_sales.vld"
+          sales.head.res shouldBe true
+          returns should have size 1
+          returns.head.table shouldBe s"${base}_returns.vld"
+          returns.head.res shouldBe true
+        case _ => ()
+      }
     }
     workload.validateTable(topts.name)
+    topts.name match {
+      case SalesTable(base) => workload.validateTable(s"${base}_returns")
+      case _ => ()
+    }
     spark.sql(s"DROP DATABASE IF EXISTS ${workload.validationDbName} CASCADE")
   }
 
@@ -475,6 +505,10 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     spark.sql(s"USE $dbName")
 
     workload.createTable(topts.name, validationPhase = false)
+    topts.name match {
+      case SalesTable(base) => workload.createTable(s"${base}_returns", validationPhase = false)
+      case _ => ()
+    }
     workload.validateRowCount(topts.name)
 
     validateTable(topts, workload)
@@ -490,6 +524,26 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   it should "genData using the TPC-DS kit with partitioning" in {
     genDataTest(TableOptions("inventory", None, Some(10), Seq.empty, // scalastyle:ignore
       Set("inv_date_sk", "inv_item_sk", "inv_warehouse_sk")))
+  }
+
+  it should "genData using the TPC-DS kit with no partitioning and child tables" in {
+    genDataTest(TableOptions("catalog_sales", None, Some(10), Seq.empty, // scalastyle:ignore
+      Set("cs_item_sk", "cs_order_number")))
+  }
+
+  it should "genData web_sales using the TPC-DS kit with no partitioning and child tables" in {
+    genDataTest(TableOptions("web_sales", None, Some(10), Seq.empty, // scalastyle:ignore
+      Set("ws_item_sk", "ws_order_number")))
+  }
+
+  it should "genData catalog_sales using the TPC-DS kit with no partitioning and child tables" in {
+    genDataTest(TableOptions("catalog_sales", None, Some(10), Seq.empty, // scalastyle:ignore
+      Set("cs_item_sk", "cs_order_number")))
+  }
+
+  it should "genData store_sales using the TPC-DS kit with no partitioning and child tables" in {
+    genDataTest(TableOptions("store_sales", None, Some(10), Seq.empty, // scalastyle:ignore
+      Set("sr_item_sk", "sr_ticket_number")))
   }
 
 //  it should "genData using the TPC-DS kit for promotion" in {

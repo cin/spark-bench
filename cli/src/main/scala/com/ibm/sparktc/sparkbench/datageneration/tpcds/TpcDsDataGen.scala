@@ -49,6 +49,7 @@ object TpcDsDataGen extends WorkloadDefaults {
   private val ValidationRgx = "([a-z_]+).vld".r
 
   private val TPCDSISDAFT = """^\s*create\s+table\s+([a-zA-Z0-9_]+)\s*\(\s*(.*)$""".r
+  private val TPCDSISSALES = """^\s*create\s+table\s+[a-z_]+(sales|returns)(.*)$""".r
 
   def apply(m: Map[String, Any]): Workload = {
     val dataOutput = getOrThrowT[String](m, "tpcds-data-output")
@@ -115,6 +116,9 @@ case class TpcDsDataGen(
     * This hack reuses the existing DDL but inserts a dummy column.
     */
   private[tpcds] def tpcdsIsDaft(qstr: String): String = qstr match {
+    case TPCDSISSALES(sr, _) =>
+      log.info(s"$sr table encountered.\n$qstr")
+      qstr
     case TPCDSISDAFT(tablename, remainingDDL) => s"create table $tablename(dmy int, $remainingDDL"
     case _ =>
       log.error(s"Unable to match regex in validation DDL for create table string\n$qstr")
@@ -285,17 +289,16 @@ case class TpcDsDataGen(
   }
 
   private def validateDatabase()(implicit spark: SparkSession, exSvc: ExSvc): Unit = {
-    genData(validationPhase = true)
-    spark.sql(s"CREATE DATABASE $validationDbName")
-    spark.sql(s"USE $validationDbName")
-    tables.foreach(validateTable)
-    spark.sql(s"DROP DATABASE $validationDbName")
+    if (tpcDsValidate) {
+      genData(validationPhase = true)
+      spark.sql(s"CREATE DATABASE $validationDbName")
+      spark.sql(s"USE $validationDbName")
+      tables.foreach(validateTable)
+      spark.sql(s"DROP DATABASE IF EXISTS $validationDbName CASCADE")
+    }
   }
 
-  override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
-    import spark.sqlContext.implicits._
-    implicit val explicitlyDeclaredImplicitSpark = spark
-    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(tableOptions.length))
+  private def doWorkload()(implicit spark: SparkSession, exSvc: ExSvc) = {
     val stats = genData(validationPhase = false)
     createDatabase()
     // TODO: optimization possible here.
@@ -304,7 +307,16 @@ case class TpcDsDataGen(
     val rowCounts = tables.map(validateRowCount)
     val statsWithRowCounts = addRowCountsToStats(stats, rowCounts)
     validateDatabase()
-    ec.shutdown()
+    statsWithRowCounts
+  }
+
+  override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
+    import spark.sqlContext.implicits._
+    implicit val explicitlyDeclaredImplicitSpark = spark
+    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(tableOptions.length))
+    val statsWithRowCounts =
+      try doWorkload()
+      finally ec.shutdown()
     spark.sparkContext.parallelize(statsWithRowCounts).toDF
   }
 }

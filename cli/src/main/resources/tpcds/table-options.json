@@ -10,12 +10,12 @@
   {
     "name": "catalog_returns",
     "skipgen": true,
-    "partitionColumns": ["cr_returned_date_sk"],
     "primaryKeys": ["cr_item_sk", "cr_order_number"]
   },
   {
     "name": "catalog_sales",
-    "partitions": 10
+    "partitions": 10,
+    "primaryKeys": ["cs_item_sk", "cs_order_number"]
   },
   {
     "name": "customer",
@@ -40,7 +40,6 @@
   {
     "name": "inventory",
     "partitions": 10,
-    "partitionColumns": ["inv_date_sk"],
     "primaryKeys": ["inv_date_sk", "inv_item_sk", "inv_warehouse_sk"]
   },
   {
@@ -70,13 +69,11 @@
   {
     "name": "store_returns",
     "skipgen": true,
-    "partitionColumns": ["sr_returned_date_sk"],
     "primaryKeys": ["sr_item_sk", "sr_ticket_number"]
   },
   {
     "name": "store_sales",
     "partitions": 10,
-    "partitionColumns": ["ss_sold_date_sk"],
     "primaryKeys": ["ss_item_sk", "ss_ticket_number"]
   },
   {
@@ -94,13 +91,11 @@
   {
     "name": "web_returns",
     "skipgen": true,
-    "partitionColumns": ["wr_returned_date_sk"],
     "primaryKeys": ["wr_order_number", "wr_item_sk"]
   },
   {
     "name": "web_sales",
     "partitions": 10,
-    "partitionColumns": ["ws_sold_date_sk"],
     "primaryKeys": ["ws_item_sk", "ws_order_number"]
   },
   {

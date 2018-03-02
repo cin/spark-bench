@@ -14,7 +14,8 @@
   },
   {
     "name": "catalog_sales",
-    "partitions": 10
+    "partitions": 10,
+    "primaryKeys": ["cs_item_sk", "cs_order_number"]
   },
   {
     "name": "customer",
