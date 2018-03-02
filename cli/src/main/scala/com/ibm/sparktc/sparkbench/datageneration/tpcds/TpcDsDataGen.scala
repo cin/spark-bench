@@ -168,7 +168,7 @@ case class TpcDsDataGen(
     if (files.nonEmpty) {
       implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(math.min(files.length, maxThreads)))
       val futures = files.map { f => asyncCopy(f, extractTableName(f.getName), validationPhase) }
-      files.map(_.getName).zip(waitForFutures(futures)).map(TpcDsTableGenResults(_))
+      files.map(_.getName).zip(waitForFutures(futures, shutdown = true)).map(TpcDsTableGenResults(_))
     } else Seq.empty
   }
 
