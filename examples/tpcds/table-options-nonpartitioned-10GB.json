@@ -1,81 +1,105 @@
 [
   {
-    "name": "call_center"
+    "name": "call_center",
+    "primaryKeys": ["cc_call_center_sk"]
   },
   {
-    "name": "catalog_page"
+    "name": "catalog_page",
+    "primaryKeys": ["cp_catalog_page_sk"]
   },
   {
     "name": "catalog_returns",
-    "skipgen": true
+    "skipgen": true,
+    "primaryKeys": ["cr_item_sk", "cr_order_number"]
   },
   {
     "name": "catalog_sales",
-    "partitions": 100
+    "partitions": 100,
+    "primaryKeys": ["cs_item_sk", "cs_order_number"]
   },
   {
-    "name": "customer"
+    "name": "customer",
+    "primaryKeys": ["c_customer_sk"]
   },
   {
-    "name": "customer_address"
+    "name": "customer_address",
+    "primaryKeys": ["ca_address_sk"]
   },
   {
-    "name": "customer_demographics"
+    "name": "customer_demographics",
+    "primaryKeys": ["cd_demo_sk"]
   },
   {
-    "name": "date_dim"
+    "name": "date_dim",
+    "primaryKeys": ["d_date_sk"]
   },
   {
-    "name": "income_band"
+    "name": "income_band",
+    "primaryKeys": ["ib_income_band_sk"]
   },
   {
     "name": "inventory",
-    "partitions": 100
+    "partitions": 100,
+    "primaryKeys": ["inv_date_sk", "inv_item_sk", "inv_warehouse_sk"]
   },
   {
-    "name": "item"
+    "name": "item",
+    "primaryKeys": ["i_item_sk"]
   },
   {
-    "name": "household_demographics"
+    "name": "household_demographics",
+    "primaryKeys": ["hd_demo_sk"]
   },
   {
-    "name": "promotion"
+    "name": "promotion",
+    "primaryKeys": ["p_promo_sk"]
   },
   {
-    "name": "reason"
+    "name": "reason",
+    "primaryKeys": ["r_reason_sk"]
   },
   {
-    "name": "ship_mode"
+    "name": "ship_mode",
+    "primaryKeys": ["sm_ship_mode_sk"]
   },
   {
-    "name": "store"
+    "name": "store",
+    "primaryKeys": ["s_store_sk"]
   },
   {
     "name": "store_returns",
-    "skipgen": true
+    "skipgen": true,
+    "primaryKeys": ["sr_item_sk", "sr_ticket_number"]
   },
   {
     "name": "store_sales",
-    "partitions": 100
+    "partitions": 100,
+    "primaryKeys": ["ss_item_sk", "ss_ticket_number"]
   },
   {
-    "name": "time_dim"
+    "name": "time_dim",
+    "primaryKeys": ["t_time_sk"]
   },
   {
-    "name": "warehouse"
+    "name": "warehouse",
+    "primaryKeys": ["w_warehouse_sk"]
   },
   {
-    "name": "web_page"
+    "name": "web_page",
+    "primaryKeys": ["wp_web_page_sk"]
   },
   {
     "name": "web_returns",
-    "skipgen": true
+    "skipgen": true,
+    "primaryKeys": ["wr_order_number", "wr_item_sk"]
   },
   {
     "name": "web_sales",
-    "partitions": 100
+    "partitions": 100,
+    "primaryKeys": ["ws_item_sk", "ws_order_number"]
   },
   {
-    "name": "web_site"
+    "name": "web_site",
+    "primaryKeys": ["web_site_sk"]
   }
 ]
