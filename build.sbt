@@ -20,6 +20,8 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 
+scalaVersion in ThisBuild := "2.11.8"
+
 /*
     **********************************************************************************
     * Common Settings and val Definitions (have to be up here for forward reference) *

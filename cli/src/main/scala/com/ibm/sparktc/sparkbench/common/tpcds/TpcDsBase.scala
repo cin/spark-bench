@@ -23,11 +23,8 @@ import java.util.UUID
 import scala.collection.mutable.ArrayBuffer
 import scala.io.Source.{createBufferedSource, fromFile, fromInputStream}
 import scala.util.Try
-
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, FileUtil, Path}
-
-import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.getOrThrowT
+import org.apache.hadoop.fs.{FileUtil, Path}
 
 object TpcDsBase {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
@@ -63,7 +60,7 @@ object TpcDsBase {
 
   def syncCopy(file: File, outputDir: String)(implicit conf: Configuration = conf): Boolean = {
     val dstDir = if (file.isDirectory) new Path(outputDir, file.getName) else new Path(outputDir)
-    val dstFs = FileSystem.get(dstDir.toUri, conf)
+    val dstFs = dstDir.getFileSystem(conf)
     // if just copying a file, make sure the directory exists
     // if copying a directory, don't do this
     if (!file.isDirectory && !dstFs.isDirectory(dstDir)) dstFs.mkdirs(dstDir)
@@ -126,13 +123,11 @@ object TpcDsBase {
   def deleteLocalDir(dirName: String): Unit = Try {
     log.debug(s"Deleting local directory: $dirName")
     val f = new File(dirName)
-    if (f.isDirectory) {
-      f.listFiles.foreach {
-        case ff if ff.isDirectory => deleteLocalDir(ff.getCanonicalPath)
-        case ff => ff.delete
-      }
-      f.delete
+    if (f.isDirectory) f.listFiles.foreach {
+      case ff if ff.isDirectory => deleteLocalDir(ff.getCanonicalPath)
+      case ff => ff.delete()
     }
+    f.delete()
   }.recover { case e: Throwable => log.error(s"Failed to cleanup $dirName", e) }
 
   sys.addShutdownHook {

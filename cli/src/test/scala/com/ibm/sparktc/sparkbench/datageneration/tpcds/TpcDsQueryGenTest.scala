@@ -19,11 +19,12 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import org.apache.hadoop.fs.{FileSystem, Path}
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{conf, createTempDir}
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{conf, createTempDir, deleteLocalDir}
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
-import org.scalatest.{FlatSpec, Matchers}
+import com.holdenkarau.spark.testing.HDFSCluster
+import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 
-class TpcDsQueryGenTest extends FlatSpec with Matchers {
+class TpcDsQueryGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   private val cwd = sys.props("user.dir")
   private val kitDir = s"$cwd/cli/src/test/resources/tpcds/${
     sys.props("os.name") match {
@@ -34,6 +35,17 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
 
   private val outputPath = createTempDir(kitDir, namePrefix = "qgen")
   private val outputDir = outputPath.getName
+
+  private val hdfsCluster = new HDFSCluster()
+
+  override protected def beforeAll(): Unit = {
+    hdfsCluster.startHDFS()
+  }
+
+  override protected def afterAll(): Unit = {
+    hdfsCluster.shutdownHDFS()
+    deleteLocalDir(outputDir)
+  }
 
   private val confMapTest: Map[String, Any] = Map(
     "tpcds-query-output" -> outputDir,
@@ -132,7 +144,7 @@ class TpcDsQueryGenTest extends FlatSpec with Matchers {
   }
 
   it should "doWorkload with hdfs output" in {
-    val hdfsDir = s"hdfs://localhost:9000/qgen${System.currentTimeMillis}"
+    val hdfsDir = s"${hdfsCluster.getNameNodeURI()}/qgen${System.currentTimeMillis}"
     val workload = mkWorkload(confMapTest + ("tpcds-query-output" -> hdfsDir))
     val spark = SparkSessionProvider.spark
     val df = workload.doWorkload(None, spark)

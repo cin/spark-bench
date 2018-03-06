@@ -18,11 +18,14 @@
 package com.ibm.sparktc.sparkbench.utils
 
 import java.io.StringWriter
+import java.util.concurrent.Executors.newFixedThreadPool
 
 import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, ExecutionContextExecutorService => ExSvc, Future}
+import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutorService => ExSvc, Future}
 import scala.sys.process._
 import scala.util.{Failure, Success, Try}
+
+import com.google.common.util.concurrent.ThreadFactoryBuilder
 
 object GeneralFunctions {
   private val log = org.slf4j.LoggerFactory.getLogger(getClass)
@@ -111,6 +114,15 @@ object GeneralFunctions {
         throw new RuntimeException(msg)
     }
   }.isSuccess
+
+  def mkDaemonThreadPool(numThreads: Int, prefix: String): ExSvc = {
+    ExecutionContext.fromExecutorService(
+      newFixedThreadPool(
+        numThreads,
+        new ThreadFactoryBuilder().setDaemon(true).setNameFormat(prefix + "-%d").build()
+      )
+    )
+  }
 
   def waitForFutures[T](
       futures: Seq[Future[T]], duration: Duration = Duration.Inf, shutdown: Boolean = false)

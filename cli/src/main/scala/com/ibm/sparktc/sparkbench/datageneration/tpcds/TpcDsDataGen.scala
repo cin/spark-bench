@@ -23,9 +23,8 @@
 package com.ibm.sparktc.sparkbench.datageneration.tpcds
 
 import java.io.File
-import java.util.concurrent.Executors.newFixedThreadPool
 
-import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService => ExSvc, Future}
+import scala.concurrent.{ExecutionContextExecutorService => ExSvc, Future}
 import scala.io.Source.fromInputStream
 
 import org.apache.spark.rdd.RDD
@@ -89,6 +88,10 @@ case class TpcDsDataGen(
     tpcDsDataValidationOutput: String
   ) extends Workload {
   import TpcDsDataGen._
+
+  private[tpcds] val dsdgenOutputPath: String = fixupPath(tpcDsDsdgenOutput)
+  private[tpcds] val dsdgenValidationOutputPath: String = fixupPath(tpcDsDsdgenValidationOutput)
+  private[tpcds] val validationDbName = s"${dbName}_validation"
 
   private[tpcds] def asyncCopy(file: File, tableName: String, validationPhase: Boolean)(implicit ec: ExSvc) = Future {
     syncCopy(file, if (validationPhase) s"$tpcDsDataValidationOutput/$tableName" else s"$tpcDsDataOutput/$tableName")
@@ -166,7 +169,7 @@ case class TpcDsDataGen(
   private def copyToHdfs(f: File, validationPhase: Boolean): Seq[TpcDsTableGenResults] = {
     val files = f.listFiles
     if (files.nonEmpty) {
-      implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(math.min(files.length, maxThreads)))
+      implicit val ec = mkDaemonThreadPool(math.min(files.length, maxThreads), "hdfs-par-cp")
       val futures = files.map { f => asyncCopy(f, extractTableName(f.getName), validationPhase) }
       files.map(_.getName).zip(waitForFutures(futures, shutdown = true)).map(TpcDsTableGenResults(_))
     } else Seq.empty
@@ -228,9 +231,6 @@ case class TpcDsDataGen(
     else path
   }
 
-  private[tpcds] val dsdgenOutputPath: String = fixupPath(tpcDsDsdgenOutput)
-  private[tpcds] val dsdgenValidationOutputPath: String = fixupPath(tpcDsDsdgenValidationOutput)
-
   private def genData(topt: TableOptions, child: Int, validationPhase: Boolean): Seq[TpcDsTableGenResults] = {
     val kitDir = mkKitDir(tpcDsKitDir)
     val outputDir =
@@ -273,8 +273,6 @@ case class TpcDsDataGen(
     }
   }
 
-  private[tpcds] val validationDbName = s"${dbName}_validation"
-
   private[tpcds] def validateTable(table: String)(implicit spark: SparkSession) = {
     createTable(table, validationPhase = true)
     val validationTable = spark.sql(s"select * from $validationDbName.${table}_text")
@@ -313,7 +311,7 @@ case class TpcDsDataGen(
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {
     import spark.sqlContext.implicits._
     implicit val explicitlyDeclaredImplicitSpark = spark
-    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(tableOptions.length))
+    implicit val ec = mkDaemonThreadPool(tableOptions.length, "tpcds-gen")
     val statsWithRowCounts =
       try doWorkload()
       finally ec.shutdown()

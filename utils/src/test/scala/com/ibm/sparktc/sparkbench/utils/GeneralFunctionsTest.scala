@@ -142,8 +142,8 @@ class GeneralFunctionsTest extends FlatSpec with Matchers with BeforeAndAfterEac
     runCmd(Seq("ls", "-al", "minimal-example.conf"), Some("notadir")) shouldBe false
   }
 
-  it should "waitForFutures" in {
-    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(3))
+  it should "create daemon thread pools and wait for them" in {
+    implicit val ec = mkDaemonThreadPool(3, "wff-test")
     val futures = (1L to 3L).map { i =>
       Future {
         Thread.sleep(i * 1000L)

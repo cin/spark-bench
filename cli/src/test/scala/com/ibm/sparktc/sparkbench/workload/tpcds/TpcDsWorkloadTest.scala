@@ -22,10 +22,11 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{conf, tables}
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions.time
-import org.scalatest.{FlatSpec, Matchers}
+import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
+import com.holdenkarau.spark.testing.HDFSCluster
 
-class TpcDsWorkloadTest extends FlatSpec with Matchers {
-//  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
+class TpcDsWorkloadTest extends FlatSpec with Matchers with BeforeAndAfterAll {
+  private val log = org.slf4j.LoggerFactory.getLogger(getClass)
 
   private val cwd = sys.props("user.dir")
   private val queryAbsPath = s"$cwd/cli/src/test/resources/tpcds/queries/query_0.sql"
@@ -34,6 +35,16 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
   private val confMapTest: Map[String, Any] = Map(
     "querystream" -> query0
   )
+
+  private val hdfsCluster = new HDFSCluster()
+
+  override protected def beforeAll(): Unit = {
+    hdfsCluster.startHDFS()
+  }
+
+  override protected def afterAll(): Unit = {
+    hdfsCluster.shutdownHDFS()
+  }
 
   private def mkWorkload: TpcDsWorkload = mkWorkload(confMapTest)
   private def mkWorkload(confMap: Map[String, Any]): TpcDsWorkload =
@@ -176,7 +187,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
   }
 
   it should "extractQueries from a good file on HDFS" in {
-    val hdfsDir = s"hdfs://localhost:9000/qgen${System.currentTimeMillis}"
+    val hdfsDir = s"${hdfsCluster.getNameNodeURI()}/qgen${System.currentTimeMillis}"
     val hdfsFile = s"$hdfsDir/query_0.sql"
 
     val dstPath = new Path(hdfsFile)
@@ -199,7 +210,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
 //      workload.runQuery(queryInfo)
 //    } catch { case e: Throwable =>
 //      log.error(s"$i, ${queryInfo.queryNum}, ${queryInfo.queryTemplate}\n${queryInfo.queries.mkString("\n")}", e)
-//      Seq(TpcDsQueryStats(queryInfo.queryTemplate, 0, 0))
+//      Seq(TpcDsQueryStats(queryInfo.queryTemplate, 0, 0, 0L, 0))
 //    }
 //    (queryInfo.queryNum, queryStats)
 //  }
@@ -218,10 +229,10 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
 //    implicit val workload = mkWorkload
 //
 //    tables.foreach { t =>
-//      spark.read.parquet(s"hdfs://localhost:9000/tpcds-warehouse/tpcds.db/$t").createOrReplaceTempView(t)
+//      spark.read.parquet(s"${hdfsCluster.getNameNodeURI()}/tpcds-warehouse/tpcds.db/$t").createOrReplaceTempView(t)
 //    }
 //
-//    val queries = workload.extractQueries
+//    val queries = workload.extractQueries()
 //    val queryStats = queries.zipWithIndex.map(runQueries)
 //  }
 
@@ -229,7 +240,7 @@ class TpcDsWorkloadTest extends FlatSpec with Matchers {
     implicit val spark = SparkSessionProvider.spark
     val workload = mkWorkload
     tables.foreach { t =>
-      spark.read.parquet(s"hdfs://localhost:9000/tpcds-warehouse/tpcds.db/$t").createOrReplaceTempView(t)
+      spark.read.parquet(s"${hdfsCluster.getNameNodeURI()}/tpcds-warehouse/tpcds.db/$t").createOrReplaceTempView(t)
     }
     val (dur, stats) = time(workload.runQuery(q0queries.head))
     stats should have size 1

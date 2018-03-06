@@ -25,9 +25,11 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
+
+import com.holdenkarau.spark.testing.HDFSCluster
 import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 
-import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{createTempDir, deleteLocalDir, syncCopy}
+import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{createTempDir, deleteLocalDir}
 import com.ibm.sparktc.sparkbench.testfixtures.SparkSessionProvider
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
 
@@ -43,8 +45,10 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     }
   }"
 
-  private val confMapTest: Map[String, Any] = Map(
-    "tpcds-data-output" -> "hdfs://localhost:9000/test-output",
+  private val hdfsCluster = new HDFSCluster()
+
+  private lazy val confMapTest: Map[String, Any] = Map(
+    "tpcds-data-output" -> s"${hdfsCluster.getNameNodeURI}/test-output",
     "tpcds-dsdgen-output" -> "test-output",
     "tpcds-dsdgen-validation-output" -> "test-validation-output",
     "dbname" -> dbName,
@@ -57,6 +61,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   )
 
   override protected def beforeAll(): Unit = {
+    hdfsCluster.startHDFS()
     val f = new java.io.File(s"$cwd/spark-warehouse/$dbName.db")
     if (f.exists()) deleteLocalDir(f.getCanonicalPath)
     val vf = new java.io.File(s"$cwd/spark-warehouse/${dbName}_validation.db")
@@ -68,6 +73,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     if (f.exists()) deleteLocalDir(f.getCanonicalPath)
     val vf = new java.io.File(s"$kitDir/test-validation-output")
     if (vf.exists()) deleteLocalDir(vf.getCanonicalPath)
+    hdfsCluster.shutdownHDFS()
   }
 
   private def mkWorkload: TpcDsDataGen = mkWorkload(confMapTest)
@@ -82,26 +88,9 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     workload.tpcDsKitDir shouldBe kitDir
     workload.tpcDsScale shouldBe 1
     workload.tpcDsRngSeed shouldBe 8
-    workload.tpcDsDataOutput shouldBe "hdfs://localhost:9000/test-output"
+    workload.tpcDsDataOutput shouldBe s"${hdfsCluster.getNameNodeURI}/test-output"
     workload.tableOptions should have size 24
     // TableOptionsTest validations proper parsing of table-options
-  }
-
-  it should "syncCopy files to HDFS" in {
-    val tmpFile = java.nio.file.Files.createTempFile("foo", "tmp")
-    val dirString = "hdfs://localhost:9000/foo-tmp"
-    val dstDir = new Path(dirString)
-
-    val dstFs = FileSystem.get(dstDir.toUri, conf)
-    var createdDir = false
-    if (!dstFs.isDirectory(dstDir)) {
-      dstFs.mkdirs(dstDir)
-      createdDir = true
-    }
-
-    syncCopy(tmpFile.toFile, dirString) shouldBe true
-
-    if (createdDir) dstFs.delete(dstDir, true)
   }
 
   it should "asyncCopy" in {
@@ -117,7 +106,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
       createdDir = true
     }
 
-    implicit val ec = ExecutionContext.fromExecutorService(newFixedThreadPool(1))
+    implicit val ec = mkDaemonThreadPool(1, "async-cp-test")
     val f = workload.asyncCopy(tmpFile.toFile, "foo", validationPhase = false)
     val results = waitForFutures(Seq(f))
     results.foreach(_ shouldBe true)
@@ -207,7 +196,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   }
 
   it should "mkPartitionStmt" in {
-    val workload = mkWorkload
+    val workload = mkWorkload(confMapTest + ("table-options" -> "/tpcds/table-options-partitioned.json"))
     workload.mkPartitionStatement("catalog_sales") shouldBe "PARTITIONED BY(cs_sold_date_sk)"
     workload.mkPartitionStatement("call_center") shouldBe ""
   }
@@ -330,73 +319,6 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
   // integration type tests
   /////////////////////////////////////////////////////////////////////////////////////////////
 
-//  private def checkCleanup(): Unit = {
-//    val journeyDir = confMapTest("journeydir").asInstanceOf[String]
-//    val fsPrefix = confMapTest("fsprefix").asInstanceOf[String]
-//
-//    val f = new java.io.File(journeyDir)
-//    f.exists shouldBe false
-//    f.isDirectory shouldBe false
-//
-//    val dstDir = new Path(s"$fsPrefix$journeyDir")
-//    val dstFs = FileSystem.get(dstDir.toUri, conf)
-//    dstFs.exists(dstDir) shouldBe false
-//    dstFs.isDirectory(dstDir) shouldBe false
-//  }
-
-  // ignore the cleanup tests so the journey won't have to be downloaded every time the tests run
-//  it should "cleanup the journey from the local filesystem and HDFS initially" in {
-//    implicit val conf = new Configuration()
-//    val workload = mkWorkload(confMapTest + ("clean" -> true))
-//    workload.cleanupJourney
-//    checkCleanup()
-//  }
-//
-//  it should "determine if the journey exists after cleanup" in {
-//    implicit val conf = new Configuration()
-//    val workload = mkWorkload(confMapTest + ("clean" -> true))
-//    workload.doesJourneyExist shouldBe false
-//  }
-
-//  it should "retrieve the journey's repository" in {
-//    val workload = mkWorkload
-//    val journeyDir = confMapTest("journeydir").asInstanceOf[String]
-//    val fsPrefix = confMapTest("fsprefix").asInstanceOf[String]
-//
-//    workload.retrieveRepo()
-//
-//    val f = new java.io.File(journeyDir)
-//    f.exists shouldBe true
-//    f.isDirectory shouldBe true
-//
-//    val dstDir = new Path(s"$fsPrefix$journeyDir")
-//    val dstFs = FileSystem.get(dstDir.toUri, conf)
-//    dstFs.isDirectory(dstDir) shouldBe true
-//  }
-//
-//  it should "determine if the journey exists after cloning" in {
-//    implicit val conf = new Configuration()
-//    val workload = mkWorkload
-//    workload.doesJourneyExist shouldBe true
-//  }
-//
-//  it should "createDatabase based on the journey" in {
-//    implicit val spark = SparkSessionProvider.spark
-//    val workload = mkWorkload
-//    workload.createDatabase
-//    val dbs = spark.sql("show databases").collect
-//    dbs.find(_.getAs[String]("databaseName") == "testdb") shouldBe defined
-//  }
-//
-//  it should "createTables based on the journey" in {
-//    implicit val spark = SparkSessionProvider.spark
-//    val workload = mkWorkload
-//    val tableName = com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.tables.head
-//    workload.createTable(tableName)
-//    val tables = spark.sql("show tables").collect
-//    tables.find(_.getAs[String]("tableName") == tableName) shouldBe defined
-//  }
-
   private def delDir(dir: String): Unit = {
     val dstDir = new Path(dir)
     val dstFs = FileSystem.get(dstDir.toUri, conf)
@@ -427,6 +349,7 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
       val r1 = r.collect.flatten
       topts.partitions match {
         case Some(np) =>
+          // at the qualification scale, dsdgen won't necessarily produce the right number of file parts
 //          r1 should have size np
           if (r1.length != np)
             log.error(s"Unexpected number of partitions produced: ${r1.length} != $np\n${r1.mkString(",")}")
@@ -517,34 +440,33 @@ class TpcDsDataGenTest extends FlatSpec with Matchers with BeforeAndAfterAll {
     ec.shutdown()
   }
 
-  it should "genData using the TPC-DS kit with no partitioning" in {
+  it should "genData call_center using the TPC-DS kit with no partitioning" in {
     genDataTest(TableOptions("call_center", None, None, Seq.empty, Set("cc_call_center_sk")))
   }
 
-  it should "genData using the TPC-DS kit with partitioning" in {
-    genDataTest(TableOptions("inventory", None, Some(10), Seq.empty, // scalastyle:ignore
-      Set("inv_date_sk", "inv_item_sk", "inv_warehouse_sk")))
-  }
-
-  it should "genData using the TPC-DS kit with no partitioning and child tables" in {
-    genDataTest(TableOptions("catalog_sales", None, Some(10), Seq.empty, // scalastyle:ignore
-      Set("cs_item_sk", "cs_order_number")))
-  }
-
-  it should "genData web_sales using the TPC-DS kit with no partitioning and child tables" in {
+  // takes > 1 minute to run this test but quickest test that exercises partitioning with child tables
+  it should "genData web_sales using the TPC-DS kit with partitioning and child tables" in {
     genDataTest(TableOptions("web_sales", None, Some(10), Seq.empty, // scalastyle:ignore
       Set("ws_item_sk", "ws_order_number")))
   }
 
-  it should "genData catalog_sales using the TPC-DS kit with no partitioning and child tables" in {
-    genDataTest(TableOptions("catalog_sales", None, Some(10), Seq.empty, // scalastyle:ignore
-      Set("cs_item_sk", "cs_order_number")))
-  }
+  // commented out bc it takes > 8 minutes to run this test
+//  it should "genData inventory using the TPC-DS kit with partitioning" in {
+//    genDataTest(TableOptions("inventory", None, Some(10), Seq.empty, // scalastyle:ignore
+//      Set("inv_date_sk", "inv_item_sk", "inv_warehouse_sk")))
+//  }
 
-  it should "genData store_sales using the TPC-DS kit with no partitioning and child tables" in {
-    genDataTest(TableOptions("store_sales", None, Some(10), Seq.empty, // scalastyle:ignore
-      Set("sr_item_sk", "sr_ticket_number")))
-  }
+  // commented out bc it takes > 2 minutes to run this test
+//  it should "genData catalog_sales using the TPC-DS kit with partitioning and child tables" in {
+//    genDataTest(TableOptions("catalog_sales", None, Some(10), Seq.empty, // scalastyle:ignore
+//      Set("cs_item_sk", "cs_order_number")))
+//  }
+
+  // commented out bc it takes > 6 minutes to complete
+//  it should "genData store_sales using the TPC-DS kit with partitioning and child tables" in {
+//    genDataTest(TableOptions("store_sales", None, Some(10), Seq.empty, // scalastyle:ignore
+//      Set("sr_item_sk", "sr_ticket_number")))
+//  }
 
 //  it should "genData using the TPC-DS kit for promotion" in {
 //    genDataTest("promotion", None)

@@ -17,8 +17,7 @@
 
 package com.ibm.sparktc.sparkbench.workload.tpcds
 
-import java.util.concurrent.Executors.newFixedThreadPool
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 
 import com.ibm.sparktc.sparkbench.common.tpcds.TpcDsBase.{loadFile, tables}
 import com.ibm.sparktc.sparkbench.utils.GeneralFunctions._
@@ -109,9 +108,7 @@ case class TpcDsWorkload(
     implicit val explicitlyDeclaredImplicitSpark: SparkSession = spark
     setup()
     val queries = extractQueries()
-    implicit val ec = ExecutionContext.fromExecutorService(
-      newFixedThreadPool(math.min(parallelQueriesToRun, queries.length))
-    )
+    implicit val ec = mkDaemonThreadPool(math.min(parallelQueriesToRun, queries.length), "tpcds-workload")
     val queryStatsFutures = queries.map { queryInfo => Future(runQuery(queryInfo)) }
     val queryStats = waitForFutures(queryStatsFutures, shutdown = true).flatten
     spark.createDataFrame(spark.sparkContext.parallelize(queryStats))
