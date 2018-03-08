@@ -35,7 +35,6 @@ val sparklaunchTestResourcesJarsFile = settingKey[String]("folder where compiled
 
 lazy val commonSettings = Seq(
   organization := "com.ibm.sparktc",
-  scalaVersion := "2.11.8",
   parallelExecution in Test := false,
   test in assembly := {},
   sparkBenchJar := s"spark-bench-${version.value}.jar",

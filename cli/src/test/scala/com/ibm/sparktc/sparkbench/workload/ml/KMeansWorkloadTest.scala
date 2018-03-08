@@ -30,8 +30,8 @@ import org.apache.spark.sql.types.{DoubleType, StructField, StructType}
 import org.scalatest.{BeforeAndAfterEach, FlatSpec, Matchers}
 
 class KMeansWorkloadTest extends FlatSpec with Matchers with BeforeAndAfterEach {
-  val spark = SparkSessionProvider.spark
-  val fileName = s"/tmp/spark-bench-scalatest/kmeans-${java.util.UUID.randomUUID.toString}.csv"
+  private val spark = SparkSessionProvider.spark
+  private val fileName = s"/tmp/spark-bench-scalatest/kmeans-${java.util.UUID.randomUUID.toString}.csv"
 
   override def afterEach() {
     Utils.deleteRecursively(new File(fileName))

@@ -56,7 +56,7 @@ object KMeansWorkload extends WorkloadDefaults {
   val maxIteration: Int = 2
   val seed: Long = 127L
 
-  def apply(m: Map[String, Any]): Workload = new KMeansWorkload(
+  def apply(m: Map[String, Any]): KMeansWorkload = new KMeansWorkload(
     input = Some(getOrThrow(m, "input").asInstanceOf[String]),
     output = getOrDefault[Option[String]](m, "workloadresultsoutputdir", None),
     saveMode = getOrDefault[String](m, "save-mode", SaveModes.error),

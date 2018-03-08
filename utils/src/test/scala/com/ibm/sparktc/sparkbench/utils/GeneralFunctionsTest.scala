@@ -155,4 +155,30 @@ class GeneralFunctionsTest extends FlatSpec with Matchers with BeforeAndAfterEac
     res should have size 3
     dur shouldBe 3000000000L +- 500000000L
   }
+
+  it should "mkProcess correctly" in {
+    val pb = mkProcess(Seq("ls", "-al"), None)
+    pb.! shouldBe 0
+  }
+
+  it should "mkProcess but fail on invalid commands" in {
+    val pb = mkProcess(Seq("thisisnotacommand", "-al"), None)
+    a[java.io.IOException] should be thrownBy pb.!
+  }
+
+  it should "runCmd successfully" in {
+    runCmd(Seq("ls", "-al")) shouldBe true
+  }
+
+  it should "runCmd and fail appropriately" in {
+    runCmd(Seq("thisisnota", "-command")) shouldBe false
+  }
+
+  it should "runCmd work with different current working directory" in {
+    runCmd(Seq("ls", "-al", "minimal-example.conf"), Some("examples")) shouldBe true
+  }
+
+  it should "runCmd fail appropriately with different current working directory" in {
+    runCmd(Seq("ls", "-al", "minimal-example.conf"), Some("notadir")) shouldBe false
+  }
 }

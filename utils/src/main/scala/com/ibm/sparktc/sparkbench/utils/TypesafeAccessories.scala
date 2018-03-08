@@ -97,8 +97,9 @@ object TypesafeAccessories {
     * @param list
     * @return
     */
-  private def crossJoin(list: Seq[Seq[Any]]): Seq[Seq[Any]] =
+  private def crossJoin(list: List[Seq[Any]]): Seq[Seq[Any]] =
     list match {
+      case Nil => Seq.empty
       case xs :: Nil => xs map (Seq(_))
       case x :: xs => for {
         i <- x
@@ -114,7 +115,7 @@ object TypesafeAccessories {
     */
   def splitGroupedConfigToIndividualConfigs(m: Map[String, Seq[Any]]): Seq[Map[String, Any]] = {
     val keys: Seq[String] = m.keys.toSeq
-    val valuesSeq: Seq[Seq[Any]] = m.map(_._2).toSeq //for some reason .values wasn't working properly
+    val valuesSeq: List[Seq[Any]] = m.values.toList
 
     // All this could be one-lined, I've multi-lined it and explicit typed it for clarity
     val joined: Seq[Seq[Any]] = crossJoin(valuesSeq)
