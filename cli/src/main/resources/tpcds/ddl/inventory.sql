@@ -13,6 +13,6 @@ drop table if exists inventory;
 create table inventory 
 using parquet
 ${PARTITIONEDBY_STATEMENT}
-as (select * from inventory_text)
+as (select * from inventory_text DISTRIBUTE BY inv_date_sk)
 ;
 drop table if exists inventory_text;

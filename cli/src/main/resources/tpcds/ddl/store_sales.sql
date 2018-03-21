@@ -32,6 +32,6 @@ drop table if exists store_sales;
 create table store_sales
 using parquet
 ${PARTITIONEDBY_STATEMENT}
-as (select * from store_sales_text)
+as (select * from store_sales_text DISTRIBUTE BY ss_sold_date_sk)
 ;
 drop table if exists store_sales_text;

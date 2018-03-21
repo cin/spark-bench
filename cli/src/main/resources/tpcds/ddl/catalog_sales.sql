@@ -43,6 +43,6 @@ drop table if exists catalog_sales;
 create table catalog_sales
 using parquet
 ${PARTITIONEDBY_STATEMENT}
-as (select * from catalog_sales_text)
+as (select * from catalog_sales_text DISTRIBUTE BY cs_sold_date_sk)
 ;
 drop table if exists catalog_sales_text;

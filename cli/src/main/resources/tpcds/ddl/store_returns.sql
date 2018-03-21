@@ -29,6 +29,6 @@ drop table if exists store_returns;
 create table store_returns 
 using parquet
 ${PARTITIONEDBY_STATEMENT}
-as (select * from store_returns_text)
+as (select * from store_returns_text DISTRIBUTE BY sr_returned_date_sk)
 ;
 drop table if exists store_returns_text;

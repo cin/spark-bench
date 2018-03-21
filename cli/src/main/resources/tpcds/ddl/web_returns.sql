@@ -33,6 +33,6 @@ drop table if exists web_returns;
 create table web_returns
 using parquet
 ${PARTITIONEDBY_STATEMENT}
-as (select * from web_returns_text)
+as (select * from web_returns_text DISTRIBUTE BY wr_returned_date_sk)
 ;
 drop table if exists web_returns_text;

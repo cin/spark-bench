@@ -43,6 +43,6 @@ drop table if exists web_sales;
 create table web_sales
 using parquet
 ${PARTITIONEDBY_STATEMENT}
-as (select * from web_sales_text)
+as (select * from web_sales_text DISTRIBUTE BY ws_sold_date_sk)
 ;
 drop table if exists web_sales_text;
