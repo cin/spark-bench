@@ -66,7 +66,8 @@ object TpcDsDataGen extends WorkloadDefaults {
       dataOutput,
       getOrDefault[Boolean](m, "tpcds-dsdgen-validate", false),
       getOrDefault[String](m, "tpcds-dsdgen-validation-output", "tpcds-validation-data"),
-      getOrDefault[String](m, "tpcds-data-validation-output", s"$dataOutput-validation")
+      getOrDefault[String](m, "tpcds-data-validation-output", s"$dataOutput-validation"),
+      getOrDefault[Boolean](m, "tpcds-create-tables-only", false)
     )
   }
 }
@@ -85,7 +86,8 @@ case class TpcDsDataGen(
     tpcDsDataOutput: String,
     tpcDsValidate: Boolean,
     tpcDsDsdgenValidationOutput: String,
-    tpcDsDataValidationOutput: String
+    tpcDsDataValidationOutput: String,
+    tpcDsCreateTablesOnly: Boolean
   ) extends Workload {
   import TpcDsDataGen._
 
@@ -297,7 +299,9 @@ case class TpcDsDataGen(
   }
 
   private def doWorkload()(implicit spark: SparkSession, exSvc: ExSvc) = {
-    val stats = genData(validationPhase = false)
+    val stats =
+      if (!tpcDsCreateTablesOnly) genData(validationPhase = false)
+      else Seq.empty
     createDatabase()
     // TODO: optimization possible here.
     // create the tables (convert from CSV to parquet) right after each table has been created

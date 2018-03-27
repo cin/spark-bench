@@ -15,7 +15,7 @@
   },
   {
     "name": "catalog_sales",
-    "partitions": 100,
+    "partitions": 1000,
     "partitionColumns": ["cs_sold_date_sk"],
     "primaryKeys": ["cs_item_sk", "cs_order_number"]
   },
@@ -41,7 +41,7 @@
   },
   {
     "name": "inventory",
-    "partitions": 100,
+    "partitions": 1000,
     "partitionColumns": ["inv_date_sk"],
     "primaryKeys": ["inv_date_sk", "inv_item_sk", "inv_warehouse_sk"]
   },
@@ -77,7 +77,7 @@
   },
   {
     "name": "store_sales",
-    "partitions": 100,
+    "partitions": 1000,
     "partitionColumns": ["ss_sold_date_sk"],
     "primaryKeys": ["ss_item_sk", "ss_ticket_number"]
   },
@@ -101,7 +101,7 @@
   },
   {
     "name": "web_sales",
-    "partitions": 100,
+    "partitions": 1000,
     "partitionColumns": ["ws_sold_date_sk"],
     "primaryKeys": ["ws_item_sk", "ws_order_number"]
   },
