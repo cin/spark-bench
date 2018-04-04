@@ -89,9 +89,13 @@ case class TpcDsWorkload(
 
     queries.zipWithIndex.map { case (query, i) =>
       log.info(s"Running query ${queryInfo.queryNum}.$i from ${queryInfo.queryTemplate}:\n$query")
-      if (explainQueries) spark.sql(query).explain(true)
-      val (dur, result) = time(spark.sql(query).collect)
-      TpcDsQueryStats(queryInfo.queryTemplate, queryInfo.queryNum, i, dur, result.length)
+      if (explainQueries) {
+        spark.sql(query).explain(true)
+        TpcDsQueryStats(queryInfo.queryTemplate, queryInfo.queryNum, i, 0, 0)
+      } else {
+        val (dur, result) = time(spark.sql(query).collect)
+        TpcDsQueryStats(queryInfo.queryTemplate, queryInfo.queryNum, i, dur, result.length)
+      }
     }
   }
 
