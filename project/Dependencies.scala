@@ -29,7 +29,8 @@ object Dependencies {
     "org.apache.spark" %% "spark-core"  % sparkVersion % "provided",
     "org.apache.spark" %% "spark-mllib" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-sql"   % sparkVersion % "provided",
-    "com.databricks"   %% "spark-avro"  % "4.0.0"
+    "com.databricks"   %% "spark-avro"  % "4.0.0",
+    "com.datastax.spark" %% "spark-cassandra-connector" % "2.0.7"
   )
 
   val breezeDeps = Seq(

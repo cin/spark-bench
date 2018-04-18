@@ -25,7 +25,6 @@ package com.ibm.sparktc.sparkbench.datageneration.tpcds
 import java.io.File
 
 import scala.concurrent.{ExecutionContextExecutorService => ExSvc, Future}
-import scala.io.Source.fromInputStream
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -47,9 +46,6 @@ object TpcDsDataGen extends WorkloadDefaults {
   private val NonPartitionedRgx = "([a-z_]+).dat".r
   private val ValidationRgx = "([a-z_]+).vld".r
 
-  private val TPCDSISDAFT = """^\s*create\s+table\s+([a-zA-Z0-9_]+)\s*\(\s*(.*)$""".r
-  private val TPCDSISSALES = """^\s*create\s+table\s+[a-z_]+(sales|returns)(.*)$""".r
-
   def apply(m: Map[String, Any]): Workload = {
     val dataOutput = getOrThrowT[String](m, "tpcds-data-output")
     TpcDsDataGen(
@@ -67,7 +63,10 @@ object TpcDsDataGen extends WorkloadDefaults {
       getOrDefault[Boolean](m, "tpcds-dsdgen-validate", false),
       getOrDefault[String](m, "tpcds-dsdgen-validation-output", "tpcds-validation-data"),
       getOrDefault[String](m, "tpcds-data-validation-output", s"$dataOutput-validation"),
-      getOrDefault[Boolean](m, "tpcds-create-tables-only", false)
+      getOrDefault[Boolean](m, "tpcds-create-tables-only", false),
+      optionallyGet(m, "tpcds-spark-cassandra-host"),
+      optionallyGet(m, "tpcds-spark-cassandra-username"),
+      optionallyGet(m, "tpcds-sparkk-cassandra-password")
     )
   }
 }
@@ -87,74 +86,16 @@ case class TpcDsDataGen(
     tpcDsValidate: Boolean,
     tpcDsDsdgenValidationOutput: String,
     tpcDsDataValidationOutput: String,
-    tpcDsCreateTablesOnly: Boolean
+    tpcDsCreateTablesOnly: Boolean,
+    tpcDsSparkCassandraHost: Option[String],
+    tpcDsSparkCassandraUserName: Option[String],
+    tpcDsSparkCassandraPassword: Option[String]
   ) extends Workload {
   import TpcDsDataGen._
 
   private[tpcds] val dsdgenOutputPath: String = fixupPath(tpcDsDsdgenOutput)
-  private[tpcds] val dsdgenValidationOutputPath: String = fixupPath(tpcDsDsdgenValidationOutput)
+  val dsdgenValidationOutputPath: String = fixupPath(tpcDsDsdgenValidationOutput)
   private[tpcds] val validationDbName = s"${dbName}_validation"
-
-  private[tpcds] def asyncCopy(file: File, tableName: String, validationPhase: Boolean)(implicit ec: ExSvc) = Future {
-    syncCopy(file, if (validationPhase) s"$tpcDsDataValidationOutput/$tableName" else s"$tpcDsDataOutput/$tableName")
-  }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
-
-  protected[tpcds] def createDatabase()(implicit spark: SparkSession): Unit = {
-    spark.sql(s"DROP DATABASE IF EXISTS $dbName CASCADE")
-    spark.sql(s"CREATE DATABASE $dbName")
-    spark.sql(s"USE $dbName")
-  }
-
-  private[tpcds] def mkPartitionStatement(tableName: String): String = {
-    tableOptions.find(_.name == tableName) match {
-      case Some(to) if to.partitionColumns.nonEmpty => s"PARTITIONED BY(${to.partitionColumns.mkString(", ")})"
-      case _ => ""
-    }
-  }
-
-  /**
-    * For some reason, TPC-DS writes out an extra column when writing out validation rows.
-    * The best thing about this is that the TPC-DS spec says nothing about this column or
-    * what its expect output should be. In simple cases, it is the primary key. In multipart
-    * keys, there doesn't seem to be a rhyme or reason to its value.
-    *
-    * This hack reuses the existing DDL but inserts a dummy column.
-    */
-  private[tpcds] def tpcdsIsDaft(qstr: String): String = qstr match {
-    case TPCDSISSALES(sr, _) =>
-      log.info(s"$sr table encountered.\n$qstr")
-      qstr
-    case TPCDSISDAFT(tablename, remainingDDL) => s"create table $tablename(dmy int, $remainingDDL"
-    case _ =>
-      log.error(s"Unable to match regex in validation DDL for create table string\n$qstr")
-      qstr
-  }
-
-  private def pruneValidationStmts(sqlStmts: Seq[String], validationPhase: Boolean): Seq[String] = {
-    if (validationPhase) Seq(sqlStmts.head, tpcdsIsDaft(sqlStmts(1)))
-    else sqlStmts
-  }
-
-  /**
-   * Function to create a table in spark. It reads the DDL script for each of the
-   * tpc-ds table and executes it on Spark.
-   */
-  protected[tpcds] def createTable(tableName: String, validationPhase: Boolean)(implicit spark: SparkSession): Unit = {
-    log.info(s"Creating table $tableName...")
-    val rs = getClass.getResourceAsStream(s"/tpcds/ddl/$tableName.sql")
-    val sqlStmts = fromInputStream(rs)
-      .mkString
-      .stripLineEnd
-      .replace('\n', ' ')
-      .replace("${TPCDS_GENDATA_DIR}", if (validationPhase) tpcDsDataValidationOutput else tpcDsDataOutput)
-      .replace("csv", "org.apache.spark.sql.execution.datasources.csv.CSVFileFormat")
-      .replace("${PARTITIONEDBY_STATEMENT}", mkPartitionStatement(tableName))
-      .split(";")
-    pruneValidationStmts(sqlStmts, validationPhase).foreach { sqlStmt =>
-      log.info(sqlStmt)
-      spark.sql(sqlStmt)
-    }
-  }
 
   /**
     * Since dsdgen can create multiple tables (e.g. child tables) per call, can't simply
@@ -167,6 +108,10 @@ case class TpcDsDataGen(
     case ValidationRgx(tn) => tn
     case _ => throw new RuntimeException(s"No regex patterns matched $fn")
   }
+
+  private[tpcds] def asyncCopy(file: File, tableName: String, validationPhase: Boolean)(implicit ec: ExSvc) = Future {
+    syncCopy(file, if (validationPhase) s"$tpcDsDataValidationOutput/$tableName" else s"$tpcDsDataOutput/$tableName")
+  }.recover { case e: Throwable => log.error(s"FileUtil.copy failed on ${file.getName}", e); false }
 
   private def copyToHdfs(f: File, validationPhase: Boolean): Seq[TpcDsTableGenResults] = {
     val files = f.listFiles
@@ -193,19 +138,6 @@ case class TpcDsDataGen(
           "-parallel", s"$partitions"
         )
       }
-    }
-  }
-
-  private[tpcds] def validateRowCount(table: String)(implicit spark: SparkSession): (String, Long) = {
-    val expectedRowCount = TableRowCounts.getCount(table, tpcDsScale)
-    val res = spark.sql(s"select count(*) from $table").collect
-    if (res.isEmpty) throw new RuntimeException(s"Could not query $table's row count")
-    else {
-      val actualRowCount = res.head.getAs[Long](0)
-      if (actualRowCount != expectedRowCount) {
-        log.error(s"$table's row counts did not match expected. actual: $actualRowCount, expected: $expectedRowCount")
-      }
-      (table, actualRowCount)
     }
   }
 
@@ -259,57 +191,21 @@ case class TpcDsDataGen(
     }
   }
 
-  private def genData(validationPhase: Boolean)(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableGenStats] = {
+  def genData(validationPhase: Boolean)(implicit spark: SparkSession, exSvc: ExSvc): Seq[TpcDsTableGenStats] = {
     val seqOfRdds = genDataWithTiming(tableOptions, validationPhase)
     val rdds = waitForFutures(seqOfRdds.map(_._3))
     validateResults(rdds.flatMap(_.collect).flatten)
     seqOfRdds.map(TpcDsTableGenStats(_))
   }
 
-  private def addRowCountsToStats(
-      stats: Seq[TpcDsTableGenStats],
-      rowCounts: Seq[(String, Long)]) = stats.map { r =>
-    rowCounts.find(_._1 == r.table) match {
-      case Some(rc) => r.copy(rowCount = rc._2)
-      case _ => r
-    }
-  }
-
-  private[tpcds] def validateTable(table: String)(implicit spark: SparkSession) = {
-    createTable(table, validationPhase = true)
-    val validationTable = spark.sql(s"select * from $validationDbName.${table}_text")
-    validationTable.cache()
-    val vtCount = validationTable.count()
-    val dataTable = spark.sql(s"select * from $dbName.$table")
-    val pks = tableOptions.find(_.name == table).map(_.primaryKeys).getOrElse(Set.empty).toSeq
-    val res = validationTable.join(dataTable, pks)
-    val joinCount = res.count()
-    if (joinCount != vtCount) log.error(s"Validation failed for $table. joinCount: $joinCount, expected: $vtCount")
-    validationTable.unpersist()
-  }
-
-  private def validateDatabase()(implicit spark: SparkSession, exSvc: ExSvc): Unit = {
-    if (tpcDsValidate) {
-      genData(validationPhase = true)
-      spark.sql(s"CREATE DATABASE $validationDbName")
-      spark.sql(s"USE $validationDbName")
-      tables.foreach(validateTable)
-      spark.sql(s"DROP DATABASE IF EXISTS $validationDbName CASCADE")
-    }
-  }
-
   private def doWorkload()(implicit spark: SparkSession, exSvc: ExSvc) = {
     val stats =
       if (!tpcDsCreateTablesOnly) genData(validationPhase = false)
       else Seq.empty
-    createDatabase()
-    // TODO: optimization possible here.
-    // create the tables (convert from CSV to parquet) right after each table has been created
-    tables.foreach(createTable(_, validationPhase = false))
-    val rowCounts = tables.map(validateRowCount)
-    val statsWithRowCounts = addRowCountsToStats(stats, rowCounts)
-    validateDatabase()
-    statsWithRowCounts
+
+    implicit val thisGuy = this
+    val backend = new backends.ParquetBackend()
+    backend.run(stats)
   }
 
   override def doWorkload(df: Option[DataFrame] = None, spark: SparkSession): DataFrame = {

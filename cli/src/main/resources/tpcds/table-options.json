@@ -34,6 +34,10 @@
     "primaryKeys": ["d_date_sk"]
   },
   {
+    "name": "household_demographics",
+    "primaryKeys": ["hd_demo_sk"]
+  },
+  {
     "name": "income_band",
     "primaryKeys": ["ib_income_band_sk"]
   },
@@ -45,10 +49,6 @@
   {
     "name": "item",
     "primaryKeys": ["i_item_sk"]
-  },
-  {
-    "name": "household_demographics",
-    "primaryKeys": ["hd_demo_sk"]
   },
   {
     "name": "promotion",
